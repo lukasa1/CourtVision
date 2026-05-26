@@ -14,9 +14,7 @@ def compute_intrinsics(chessboard_clip: Path) -> dict[str, Any]:
     raise NotImplementedError("Stage 4 — weeks 3-4")
 
 
-def compute_extrinsics(
-    court_landmarks: Path, intrinsics: dict[str, Any]
-) -> dict[str, Any]:
+def compute_extrinsics(court_landmarks: Path, intrinsics: dict[str, Any]) -> dict[str, Any]:
     """Per-session court-landmark extrinsics."""
     raise NotImplementedError("Stage 4 — weeks 3-4")
 

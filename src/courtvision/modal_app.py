@@ -53,15 +53,17 @@ VOLUMES: dict[str | PurePosixPath, modal.Volume | modal.CloudBucketMount] = {
     "/artifacts": artifacts_volume,
 }
 
-# W&B credential: pulled from the local shell's WANDB_API_KEY at submit
-# time and shipped to the Modal function as a one-off secret. No
-# `modal secret create` step needed.
-# Falls back to no secret if WANDB_API_KEY isn't in the local env —
-# courtvision.logging.init_wandb auto-disables W&B in that case.
+# Local-env-passthrough secrets. Both W&B and HF credentials live in the
+# user's local shell (`.env` → `set -a; source .env; set +a`) and ride
+# along to Modal at submit time. No persistent `modal secret create` step.
+# If the env var isn't set, the secret list is empty — downstream code
+# handles missing creds gracefully (W&B disables itself; HF allows public
+# datasets only).
 _WANDB_SECRETS: list[modal.Secret] = (
-    [modal.Secret.from_local_environ(["WANDB_API_KEY"])]
-    if os.environ.get("WANDB_API_KEY")
-    else []
+    [modal.Secret.from_local_environ(["WANDB_API_KEY"])] if os.environ.get("WANDB_API_KEY") else []
+)
+_HF_SECRETS: list[modal.Secret] = (
+    [modal.Secret.from_local_environ(["HF_TOKEN"])] if os.environ.get("HF_TOKEN") else []
 )
 
 
