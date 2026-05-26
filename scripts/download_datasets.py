@@ -83,6 +83,37 @@ def download_finesports() -> str:
     return local_path
 
 
+@app.function(image=image, volumes={"/data": data_volume}, timeout=300, cpu=2)
+def peek_archive(volume_relpath: str, limit: int = 50) -> None:
+    """List the top-level entries of a zip on the volume without extracting.
+
+    Example::
+        uv run modal run scripts/download_datasets.py::peek_archive \\
+            --volume-relpath=finesports/CVPR2024.zip
+    """
+    import zipfile
+    from pathlib import Path
+
+    path = Path("/data") / volume_relpath
+    if not path.exists():
+        print(f"not found on volume: {path}")
+        return
+    print(f"{path}  ({path.stat().st_size / 1e9:.2f} GB)")
+    if path.suffix.lower() != ".zip":
+        print("only .zip is supported by this peek helper (rar needs unrar in the image)")
+        return
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        print(f"{len(names)} entries total. First {min(limit, len(names))}:")
+        for n in names[:limit]:
+            info = zf.getinfo(n)
+            kind = "dir" if n.endswith("/") else "file"
+            print(f"  {kind:4}  {info.file_size:>12}  {n}")
+        # Surface unique top-level prefixes for layout overview.
+        prefixes = sorted({n.split("/", 1)[0] for n in names if n})
+        print(f"\nunique top-level entries ({len(prefixes)}): {prefixes[:20]}")
+
+
 @app.function(image=image, volumes={"/data": data_volume}, timeout=3600 * 2, cpu=4)
 def download_u_arizona() -> str:
     # Source: U Arizona Roboflow basketball — Roboflow public dataset. ~2 GB.
