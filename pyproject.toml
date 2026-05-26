@@ -1,0 +1,88 @@
+[project]
+name = "courtvision"
+version = "0.1.0"
+description = "Multi-view 3D skeletal tracking + shot-contest measurement for half-court 2-on-2 basketball"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "TBD" }
+authors = [{ name = "Lukas Allard" }]
+
+dependencies = [
+  # Core ML (CPU-friendly subset that installs locally on macOS arm64)
+  "torch>=2.1",
+  "torchvision",
+  "torchaudio",
+  "ultralytics",
+  "opencv-python-headless",
+  # numpy <2.0 is required by mmcv at time of writing — verify before bumping
+  "numpy>=1.26,<2.0",
+  "scipy",
+
+  # Tracking + utilities
+  "wandb",
+  "hydra-core",
+  "omegaconf",
+  "pydantic>=2",
+  "tqdm",
+  "rich",
+  "python-dotenv",
+
+  # Modal + data
+  "modal",
+  "huggingface_hub",
+
+  # Tracking metrics (used by stage1 eval)
+  "motmetrics",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "mypy",
+  "pre-commit",
+  "jupyter",
+  "ipykernel",
+  "types-PyYAML",
+]
+
+# OpenMMLab stack (mmengine, mmcv, mmpose, mmaction2), WASB, and Pose2Sim are
+# NOT in pyproject.toml. They do not build cleanly on macOS arm64 (mmcv 2.2.0
+# has an undeclared pkg_resources build dep; mmcv has no arm64 macOS wheel).
+# Per PRD §13 risk #1 mitigation, the Modal image (Linux x86_64) is canonical
+# for the ML stack — see src/courtvision/modal_app.py for the pip installs.
+# Local Phase A scaffold code does not import any of these libs.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/courtvision"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "RUF"]
+ignore = ["E501"]  # line-length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/courtvision"]
+ignore_missing_imports = true
+# Plugins that ship typed annotations work fine; third-party CV libs do not.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+package = true

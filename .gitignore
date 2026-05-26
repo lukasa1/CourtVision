@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Project data — contents never committed, but .gitkeep placeholders are
+# tracked so the directory layout reproduces on clone.
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep
+modal_workspace/*
+!modal_workspace/.gitkeep
+wandb/
+
+# Model weights
+*.pth
+*.pt
+*.onnx
+*.bin
+*.safetensors
+
+# Notebooks scratch
+.ipynb_checkpoints/
+
+# Misc
+*.log
