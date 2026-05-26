@@ -90,6 +90,31 @@ def test_evaluate_trackid3x3_perfect_overlap(tmp_path: Path) -> None:
     assert "syn_cam0" in result["per_sequence"]
 
 
+def test_evaluate_trackid3x3_handles_space_separated_gt(tmp_path: Path) -> None:
+    """Drone subset GT is whitespace-separated; eval should still match it."""
+    tracks_dir = tmp_path / "tracks"
+    gt_dir = tmp_path / "gt"
+    tracks_dir.mkdir()
+    gt_dir.mkdir()
+
+    box = [50.0, 60.0, 30.0, 80.0]
+    seq = TrackSequence(
+        session_id="drone",
+        camera_id="cam0",
+        fps=30.0,
+        n_frames=1,
+        tracks=[Track(track_id=1, bbox=box, confidence=0.9, frame_idx=0)],
+    )
+    write_json(seq, tracks_dir / "tracks_drone_cam0.json")
+    (gt_dir / "drone_cam0.txt").write_text(
+        f"1 1 {box[0]} {box[1]} {box[2]} {box[3]} -1 -1 -1 -1\n"
+    )
+
+    result = evaluate_trackid3x3(tracks_dir, gt_dir)
+    assert result["n_sequences"] == 1
+    assert result["summary"]["idf1"] == pytest.approx(1.0)
+
+
 def test_evaluate_trackid3x3_round_trip_schema(tmp_path: Path) -> None:
     """Empty-tracks TrackSequence round-trips through write/read."""
     seq = TrackSequence(

@@ -15,7 +15,7 @@ rewriting the eval logic.
 
 from __future__ import annotations
 
-import csv
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,7 @@ from courtvision.logging import get_logger
 from courtvision.schemas import TrackSequence
 
 _log = get_logger(__name__)
+_DELIM = re.compile(r"[\s,]+")
 
 # Per-frame record: track_id -> [x, y, w, h] (top-left).
 FrameDets = dict[int, list[float]]
@@ -43,21 +44,23 @@ def _pred_frames_from_sequence(seq: TrackSequence) -> SequenceDets:
 
 
 def _load_gt_frames(gt_path: Path) -> SequenceDets:
-    """Load MOT-format GT into the same per-frame dict shape as predictions."""
+    """Load MOT-format GT into the same per-frame dict shape as predictions.
+
+    Delimiter-agnostic: handles CSV (TrackID3x3 Indoor + Outdoor) and
+    whitespace-separated (TrackID3x3 Drone) variants. Trailing fields
+    beyond ``frame, id, x, y, w, h`` are ignored — Indoor has 10
+    columns, Outdoor 9.
+    """
     out: SequenceDets = defaultdict(dict)
     with gt_path.open() as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if not row or row[0].startswith("#"):
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
                 continue
-            frame_1b, tid, x, y, w, h = (
-                int(row[0]),
-                int(row[1]),
-                float(row[2]),
-                float(row[3]),
-                float(row[4]),
-                float(row[5]),
-            )
+            parts = _DELIM.split(line)
+            frame_1b = int(parts[0])
+            tid = int(parts[1])
+            x, y, w, h = float(parts[2]), float(parts[3]), float(parts[4]), float(parts[5])
             # MOT convention is 1-based; our run_stage1 emits 0-based.
             out[frame_1b - 1][tid] = [x, y, w, h]
     return out
