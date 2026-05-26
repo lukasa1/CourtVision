@@ -1,10 +1,13 @@
 """Single Modal app for CourtVision. See PRD §8.
 
-The image is built from ``pyproject.toml`` (core deps) plus the OpenMMLab
-stack (``mmengine``, ``mmcv``, ``mmpose``, ``mmaction2``) plus WASB and
-Pose2Sim from git. The stack is installed *inside* the Modal image — not in
-``pyproject.toml`` — because mmcv 2.x doesn't build cleanly on macOS arm64
-(PRD §13 risk #1 mitigation).
+The shared image is built from ``pyproject.toml`` (core deps) plus the
+OpenMMLab stack (``mmengine``, ``mmcv``, ``mmpose``, ``mmaction2``). The
+stack lives in the Modal image — not in ``pyproject.toml`` — because mmcv
+2.x doesn't build cleanly on macOS arm64 (PRD §13 risk #1 mitigation).
+
+WASB and Pose2Sim are NOT in the shared image: WASB is git-only research
+code, and including them would block Phase A downloads on a build failure.
+Phase D / Stage 4 declare per-function images for those.
 
 Function bodies are ``NotImplementedError`` stubs in Phase A. Phases B/C/D/E
 fill them in, calling the corresponding ``courtvision.stageN_*`` modules.
@@ -34,14 +37,15 @@ image = (
         "mmpose>=1.3",
         "mmaction2>=1.2",
     )
-    .pip_install(
-        # WASB + Pose2Sim are git-only.
-        "git+https://github.com/nttcom/WASB-SBDT.git",
-        "git+https://github.com/perfanalytics/pose2sim.git",
-    )
     .run_commands("mkdir -p /root/.cache/mmaction2")
     .add_local_python_source("courtvision")
 )
+# NOTE: WASB (`nttcom/WASB-SBDT`) and Pose2Sim are NOT in the shared image.
+# WASB has no setup.py/pyproject.toml — it's research code meant to be
+# cloned + used in-tree. Phase D (Stage 3) and Stage 4 will declare
+# dedicated images that git-clone WASB into /opt/wasb and add it to
+# PYTHONPATH, and install Pose2Sim from PyPI (`pose2sim` package).
+# Logged in flags.md as F9.
 
 # Volumes: data (datasets) + artifacts (checkpoints, eval JSONs, inference
 # outputs). Created on first use; persist across runs.

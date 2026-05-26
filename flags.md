@@ -95,3 +95,15 @@ Format per flag:
   - Local shell doesn't have it → empty secrets list; `courtvision.logging.init_wandb` falls back to `WANDB_MODE=disabled`.
   - README updated: replaced "Modal auth + secret" step with just "Modal auth"; added a note about `set -a; source .env; set +a` before training runs.
 - **Commit:** `0440048`
+
+---
+
+## F9 — WASB + Pose2Sim removed from shared Modal image
+
+- **Status:** OPEN (deferred to Phase D / Stage 4)
+- **Phase raised:** A (caught during user test of `download_multisubjects`)
+- **Description:** The shared image previously did `pip_install("git+https://github.com/nttcom/WASB-SBDT.git", "git+https://github.com/perfanalytics/pose2sim.git")`. WASB-SBDT has neither `setup.py` nor `pyproject.toml` — it's research code meant to be cloned and used in-tree. The pip install failed, breaking the image build for every function on the app (including downloads that don't need WASB).
+- **Why it matters:** Phase A `modal run` calls must succeed end-to-end without depending on libraries that are weeks away.
+- **Resolution / next step:** Removed both git-installs from the shared image. Phase D (Stage 3) and Stage 4 will declare per-function images:
+  - **WASB (Stage 3):** `Image.debian_slim(...).run_commands("git clone https://github.com/nttcom/WASB-SBDT.git /opt/wasb").env({"PYTHONPATH": "/opt/wasb:$PYTHONPATH"})` plus WASB's own runtime deps from their `environment.yml`.
+  - **Pose2Sim (Stage 4):** `pose2sim` is on PyPI; use `.pip_install("pose2sim")` in a per-function image.
