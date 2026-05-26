@@ -109,15 +109,23 @@ def run_wasb(video_relpath: str, config: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Modal caps single-function timeout at 86400 s (24 h). PRD §9.5 estimates
+# MultiSubjects ≈ 12-24 h on A10G and FineSports ≈ 24-48 h on A100-40GB,
+# so FineSports in particular may exceed one timeout window. Phase E4
+# will implement checkpoint-resume so a multi-day run becomes a sequence
+# of ≤24 h invocations. Logged in flags.md as F10.
+_MODAL_MAX_TIMEOUT_S = 3600 * 24
+
+
 @app.function(
     image=image,
     gpu="A10G",
     volumes=VOLUMES,
     secrets=_WANDB_SECRETS,
-    timeout=3600 * 36,
+    timeout=_MODAL_MAX_TIMEOUT_S,
 )
 def train_stage2_multisubjects(config: dict[str, Any]) -> str:
-    """Transfer stage 2: full fine-tune PoseConv3D on MultiSubjects (≈24h, A10G).
+    """Transfer stage 2: full fine-tune PoseConv3D on MultiSubjects (≈12-24h, A10G).
 
     Returns the relpath of the saved checkpoint.
     """
@@ -129,12 +137,15 @@ def train_stage2_multisubjects(config: dict[str, Any]) -> str:
     gpu="A100-40GB",
     volumes=VOLUMES,
     secrets=_WANDB_SECRETS,
-    timeout=3600 * 48,
+    timeout=_MODAL_MAX_TIMEOUT_S,
 )
 def train_stage3_finesports(config: dict[str, Any]) -> str:
-    """Transfer stage 3: full fine-tune PoseConv3D on FineSports (≈24h, A100-40GB).
+    """Transfer stage 3: full fine-tune PoseConv3D on FineSports (A100-40GB).
 
-    Returns the relpath of the saved checkpoint.
+    PRD §9.5 estimates 24-48 h; if a single 24h timeout is insufficient,
+    Phase E4 will implement checkpoint-resume so the run becomes a
+    sequence of ≤24h invocations. Returns the relpath of the saved
+    checkpoint.
     """
     raise NotImplementedError("Phase E4")
 
