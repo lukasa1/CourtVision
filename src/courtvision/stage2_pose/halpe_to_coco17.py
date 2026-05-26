@@ -20,9 +20,7 @@ HALPE26_TO_COCO17 = list(range(17))
 def halpe26_to_coco17(pose: Pose2D) -> Pose2D:
     """Return a new ``Pose2D`` containing only the 17 COCO keypoints."""
     if pose.keypoint_format != "halpe26":
-        raise ValueError(
-            f"expected keypoint_format='halpe26', got {pose.keypoint_format!r}"
-        )
+        raise ValueError(f"expected keypoint_format='halpe26', got {pose.keypoint_format!r}")
     if len(pose.keypoints) != 26:
         raise ValueError(f"expected 26 keypoints, got {len(pose.keypoints)}")
     return Pose2D(
@@ -33,4 +31,4 @@ def halpe26_to_coco17(pose: Pose2D) -> Pose2D:
     )
 
 
-__all__ = ["halpe26_to_coco17", "HALPE26_TO_COCO17"]
+__all__ = ["HALPE26_TO_COCO17", "halpe26_to_coco17"]

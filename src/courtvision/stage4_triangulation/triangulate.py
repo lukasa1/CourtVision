@@ -18,4 +18,4 @@ def triangulate_ball_session(session_id: str) -> Ball3DSequence:
     raise NotImplementedError("Stage 4 — weeks 3-4")
 
 
-__all__ = ["triangulate_session", "triangulate_ball_session"]
+__all__ = ["triangulate_ball_session", "triangulate_session"]

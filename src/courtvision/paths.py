@@ -49,4 +49,4 @@ def artifacts_path(relpath: str = "") -> Path:
     return base / relpath if relpath else base
 
 
-__all__ = ["repo_root", "on_modal", "dataset_path", "artifacts_path"]
+__all__ = ["artifacts_path", "dataset_path", "on_modal", "repo_root"]

@@ -8,9 +8,7 @@ from typing import Any
 from courtvision.schemas import Pose2DSequence, TrackSequence
 
 
-def run_stage2(
-    tracks: TrackSequence, video_path: Path, config: dict[str, Any]
-) -> Pose2DSequence:
+def run_stage2(tracks: TrackSequence, video_path: Path, config: dict[str, Any]) -> Pose2DSequence:
     """Top-down pose inference on Stage 1 crops. Returns ``Pose2DSequence``.
 
     Locked config: RTMPose-l, Halpe-26 keypoints, MMPose

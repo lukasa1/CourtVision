@@ -12,6 +12,9 @@ fill them in, calling the corresponding ``courtvision.stageN_*`` modules.
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 import modal
 
 app = modal.App("courtvision")
@@ -42,11 +45,9 @@ image = (
 # Volumes: data (datasets) + artifacts (checkpoints, eval JSONs, inference
 # outputs). Created on first use; persist across runs.
 data_volume = modal.Volume.from_name("courtvision-data", create_if_missing=True)
-artifacts_volume = modal.Volume.from_name(
-    "courtvision-artifacts", create_if_missing=True
-)
+artifacts_volume = modal.Volume.from_name("courtvision-artifacts", create_if_missing=True)
 
-VOLUMES = {
+VOLUMES: dict[str | PurePosixPath, modal.Volume | modal.CloudBucketMount] = {
     "/data": data_volume,
     "/artifacts": artifacts_volume,
 }
@@ -62,7 +63,7 @@ WANDB_SECRET = modal.Secret.from_name("wandb-secret", required_keys=[])
 
 
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600)
-def run_yolo_bytetrack(video_relpath: str, config: dict) -> str:
+def run_yolo_bytetrack(video_relpath: str, config: dict[str, Any]) -> str:
     """Stage 1: YOLOv8m + ByteTrack player detection + tracking.
 
     Returns the relpath (under ``/artifacts``) of the written
@@ -72,7 +73,7 @@ def run_yolo_bytetrack(video_relpath: str, config: dict) -> str:
 
 
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600)
-def run_rtmpose(video_relpath: str, tracks_relpath: str, config: dict) -> str:
+def run_rtmpose(video_relpath: str, tracks_relpath: str, config: dict[str, Any]) -> str:
     """Stage 2: RTMPose-l Halpe-26 top-down on YOLO crops.
 
     Returns the relpath of the written ``Pose2DSequence`` JSON.
@@ -81,7 +82,7 @@ def run_rtmpose(video_relpath: str, tracks_relpath: str, config: dict) -> str:
 
 
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600)
-def run_wasb(video_relpath: str, config: dict) -> str:
+def run_wasb(video_relpath: str, config: dict[str, Any]) -> str:
     """Stage 3: WASB basketball detection.
 
     Returns the relpath of the written ``Ball2DSequence`` JSON.
@@ -101,7 +102,7 @@ def run_wasb(video_relpath: str, config: dict) -> str:
     secrets=[WANDB_SECRET],
     timeout=3600 * 36,
 )
-def train_stage2_multisubjects(config: dict) -> str:
+def train_stage2_multisubjects(config: dict[str, Any]) -> str:
     """Transfer stage 2: full fine-tune PoseConv3D on MultiSubjects (≈24h, A10G).
 
     Returns the relpath of the saved checkpoint.
@@ -116,7 +117,7 @@ def train_stage2_multisubjects(config: dict) -> str:
     secrets=[WANDB_SECRET],
     timeout=3600 * 48,
 )
-def train_stage3_finesports(config: dict) -> str:
+def train_stage3_finesports(config: dict[str, Any]) -> str:
     """Transfer stage 3: full fine-tune PoseConv3D on FineSports (≈24h, A100-40GB).
 
     Returns the relpath of the saved checkpoint.
@@ -130,7 +131,7 @@ def train_stage3_finesports(config: dict) -> str:
 
 
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600 * 4)
-def eval_external_benchmark(ckpt_relpath: str, dataset: str) -> dict:
+def eval_external_benchmark(ckpt_relpath: str, dataset: str) -> dict[str, Any]:
     """Run a checkpoint against an external benchmark (MultiSubjects /
     FineSports / TrackID3x3 / U Arizona / WASB-basketball).
     """
@@ -138,16 +139,16 @@ def eval_external_benchmark(ckpt_relpath: str, dataset: str) -> dict:
 
 
 __all__ = [
-    "app",
-    "image",
-    "data_volume",
-    "artifacts_volume",
     "VOLUMES",
     "WANDB_SECRET",
-    "run_yolo_bytetrack",
+    "app",
+    "artifacts_volume",
+    "data_volume",
+    "eval_external_benchmark",
+    "image",
     "run_rtmpose",
     "run_wasb",
+    "run_yolo_bytetrack",
     "train_stage2_multisubjects",
     "train_stage3_finesports",
-    "eval_external_benchmark",
 ]

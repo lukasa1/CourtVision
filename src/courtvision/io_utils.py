@@ -32,4 +32,4 @@ def read_json_as(model: type[M], path: str | Path) -> M:
     return model.model_validate(payload)
 
 
-__all__ = ["write_json", "read_json_as"]
+__all__ = ["read_json_as", "write_json"]

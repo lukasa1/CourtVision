@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 
-def evaluate_trackid3x3(tracks_dir: Path, gt_dir: Path) -> dict:
+def evaluate_trackid3x3(tracks_dir: Path, gt_dir: Path) -> dict[str, Any]:
     """Compute MOTA and IDF1 against TrackID3x3 ground truth."""
     raise NotImplementedError("Phase B")
 

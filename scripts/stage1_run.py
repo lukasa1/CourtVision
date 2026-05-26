@@ -11,7 +11,9 @@ from courtvision.io_utils import write_json
 from courtvision.stage1_detection.yolo_bytetrack import run_stage1
 
 
-@hydra.main(version_base=None, config_path="../configs/stage1_detection", config_name="yolov8m_bytetrack")
+@hydra.main(
+    version_base=None, config_path="../configs/stage1_detection", config_name="yolov8m_bytetrack"
+)
 def main(cfg: DictConfig) -> None:
     video = Path(cfg.input)
     result = run_stage1(video, OmegaConf.to_container(cfg, resolve=True))  # type: ignore[arg-type]

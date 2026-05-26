@@ -8,18 +8,19 @@ Rows 3 / 4 (weeks 3-4).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 
-def evaluate_multisubjects(ckpt_path: Path) -> dict:
+def evaluate_multisubjects(ckpt_path: Path) -> dict[str, Any]:
     raise NotImplementedError("Phase E3")
 
 
-def evaluate_finesports(ckpt_path: Path) -> dict:
+def evaluate_finesports(ckpt_path: Path) -> dict[str, Any]:
     raise NotImplementedError("Phase E4")
 
 
-def run_ablation(ckpts: list[Path], test_set: Path) -> dict:
+def run_ablation(ckpts: list[Path], test_set: Path) -> dict[str, Any]:
     raise NotImplementedError("Phase E5")
 
 
-__all__ = ["evaluate_multisubjects", "evaluate_finesports", "run_ablation"]
+__all__ = ["evaluate_finesports", "evaluate_multisubjects", "run_ablation"]

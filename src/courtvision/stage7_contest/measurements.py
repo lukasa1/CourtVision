@@ -55,7 +55,7 @@ def floor_distance(
     raise NotImplementedError("weeks 3-4")
 
 
-def composite(event_measurements: dict) -> float:
+def composite(event_measurements: dict[str, float]) -> float:
     raise NotImplementedError("weeks 3-4")
 
 
@@ -70,10 +70,10 @@ def measure_event(
 
 
 __all__ = [
-    "wrist_to_trajectory_distance",
-    "wrist_height_advantage",
-    "shooter_velocity_decomposed",
-    "floor_distance",
     "composite",
+    "floor_distance",
     "measure_event",
+    "shooter_velocity_decomposed",
+    "wrist_height_advantage",
+    "wrist_to_trajectory_distance",
 ]

@@ -12,7 +12,9 @@ from courtvision.schemas import TrackSequence
 from courtvision.stage2_pose.rtmpose_inference import run_stage2
 
 
-@hydra.main(version_base=None, config_path="../configs/stage2_pose", config_name="rtmpose_l_halpe26")
+@hydra.main(
+    version_base=None, config_path="../configs/stage2_pose", config_name="rtmpose_l_halpe26"
+)
 def main(cfg: DictConfig) -> None:
     tracks = read_json_as(TrackSequence, Path(cfg.tracks))
     result = run_stage2(tracks, Path(cfg.input), OmegaConf.to_container(cfg, resolve=True))  # type: ignore[arg-type]

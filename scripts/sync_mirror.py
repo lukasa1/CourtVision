@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 
 from courtvision.paths import repo_root
 
@@ -29,8 +28,12 @@ def main() -> int:
         dest = mirror_root / dataset / relpath
         dest.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
-            "modal", "volume", "get",
-            "courtvision-data", f"{dataset}/{relpath}", str(dest),
+            "modal",
+            "volume",
+            "get",
+            "courtvision-data",
+            f"{dataset}/{relpath}",
+            str(dest),
         ]
         print(" ".join(cmd))
         subprocess.run(cmd, check=True)
