@@ -1,0 +1,36 @@
+# Stage 5 — transfer-stage-2 training: MultiSubjects, full fine-tune. PRD §9.5.2.
+
+defaults:
+  - poseconv3d_slowonly_r50
+  - _self_
+
+data:
+  name: multisubjects
+  root: /data/multisubjects
+  train_split: train
+  val_split: val
+
+init_from: /artifacts/checkpoints/poseconv3d_k400.pth
+
+optimizer:
+  name: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+  warmup_epochs: 2
+
+train:
+  epochs: 30
+  batch_size: 16
+  num_workers: 8
+  early_stop_patience: 5
+
+wandb:
+  project: courtvision
+  run_name_prefix: stage5-stage2-multisubjects
+  tags: [stage5, transfer_stage_2, multisubjects]
+
+ckpt_out: /artifacts/checkpoints/stage5/stage2_multisubjects.pth

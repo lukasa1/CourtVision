@@ -1,0 +1,14 @@
+name: finesports
+root: /data/finesports
+fps: 30
+splits:
+  train: train
+  val: val
+  test: test
+n_classes: 4
+notes: |
+  Xu et al. FineSports. 10K NBA-broadcast clips with temporal action labels.
+  Used for Stage 5 transfer-stage-3 (Path C primary). Windows synthesized
+  from continuous video: positives ±5-frame jitter; negatives from
+  non-action portions → `background`.
+  If access is unavailable, fall back to Path A (skip this stage).

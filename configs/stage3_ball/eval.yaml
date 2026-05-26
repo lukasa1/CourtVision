@@ -1,0 +1,8 @@
+# Stage 3 eval — mAP on U Arizona, release-window recall on WASB basketball.
+
+preds_dir: null
+gt_dir: null
+mode: map            # or "release_window_recall"
+release_window_frames: 15
+target_map_05: 0.85
+target_recall: 0.90

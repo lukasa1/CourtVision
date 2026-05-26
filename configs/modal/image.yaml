@@ -1,0 +1,20 @@
+# Modal image definition shared across functions. PRD §8.1.
+# Source of truth is src/courtvision/modal_app.py; this file is a snapshot
+# for documentation / future swappable-base discussions.
+
+python_version: "3.11"
+base: debian_slim
+apt:
+  - ffmpeg
+  - libgl1
+  - libglib2.0-0
+  - git
+pyproject: pyproject.toml
+extra_pip:
+  - mmengine
+  - mmcv>=2.0
+  - mmpose>=1.3
+  - mmaction2>=1.2
+git:
+  - "git+https://github.com/nttcom/WASB-SBDT.git"
+  - "git+https://github.com/perfanalytics/pose2sim.git"

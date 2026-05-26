@@ -1,0 +1,7 @@
+# Stage 2 eval — wrist PCK@0.05.
+
+poses_dir: null
+gt_dir: null
+subset: trackid3x3   # or "coco17" for MultiSubjects
+pck_threshold: 0.05
+target_wrist_pck: 0.85

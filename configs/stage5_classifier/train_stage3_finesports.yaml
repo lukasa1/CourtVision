@@ -1,0 +1,36 @@
+# Stage 5 — transfer-stage-3 training: FineSports, full fine-tune. PRD §9.5.2.
+
+defaults:
+  - poseconv3d_slowonly_r50
+  - _self_
+
+data:
+  name: finesports
+  root: /data/finesports
+  train_split: train
+  val_split: val
+
+init_from: /artifacts/checkpoints/stage5/stage2_multisubjects.pth
+
+optimizer:
+  name: sgd
+  lr: 0.005           # halved vs stage 2
+  momentum: 0.9
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+  warmup_epochs: 2
+
+train:
+  epochs: 20
+  batch_size: 16
+  num_workers: 8
+  early_stop_patience: 5
+
+wandb:
+  project: courtvision
+  run_name_prefix: stage5-stage3-finesports
+  tags: [stage5, transfer_stage_3, finesports]
+
+ckpt_out: /artifacts/checkpoints/stage5/stage3_finesports.pth

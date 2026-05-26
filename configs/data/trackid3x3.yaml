@@ -1,0 +1,12 @@
+name: trackid3x3
+root: /data/trackid3x3
+fps: 30
+splits:
+  train: train
+  val: val
+  test: test
+annotations_subdir: annotations
+notes: |
+  Yamada et al. 2023. Indoor 3x3 basketball with player track IDs.
+  Primary eval set for Stage 1 (MOTA, IDF1). Wrist availability for Stage 2
+  PCK eval to be verified at start of Phase C (PRD §13 risk #5).

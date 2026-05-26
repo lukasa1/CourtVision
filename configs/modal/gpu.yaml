@@ -1,0 +1,11 @@
+# Per-function GPU assignments. PRD §8.2.
+# Source of truth is src/courtvision/modal_app.py decorators; this is a
+# snapshot for documentation.
+
+run_yolo_bytetrack: T4
+run_rtmpose: T4
+run_wasb: T4
+train_stage2_multisubjects: A10G
+train_stage3_finesports: A100-40GB
+infer_stage5: T4
+eval_external_benchmark: T4

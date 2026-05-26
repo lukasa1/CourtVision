@@ -1,0 +1,11 @@
+name: own_footage
+root: /data/own_footage  # (TBD weeks 3-4)
+fps: 60
+n_cameras: 3
+notes: |
+  3-iPhone half-court 2-on-2 footage. Captured weeks 3-4. Used for:
+  - Stage 4 triangulation (requires chessboard intrinsics + court-landmark
+    extrinsics + AE/AF lock per session)
+  - Stage 5 transfer-stage-4 LP-FT (~100-200 labeled releases)
+  - Stage 5 transfer-stage-5 ball-MLP head training
+  - Stage 6/7/8 end-to-end runs

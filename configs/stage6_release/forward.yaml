@@ -1,0 +1,6 @@
+# Stage 6 — forward 4-condition release rule. STUB — weeks 3-4.
+
+wrist_above_shoulder_required: true
+ball_wrist_eps_m: 0.30
+elbow_extension_deg: 160
+require_positive_vz: true

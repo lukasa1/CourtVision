@@ -1,0 +1,26 @@
+# Stage 5 — transfer-stage-4 LP-FT on own footage. PRD §9.5.2. STUB — weeks 3-4.
+
+defaults:
+  - poseconv3d_slowonly_r50
+  - _self_
+
+data:
+  name: own_footage
+  root: /data/own_footage   # TBD weeks 3-4
+
+init_from: /artifacts/checkpoints/stage5/stage3_finesports.pth
+
+# Two-phase LP-FT (Kumar et al. ICLR 2022):
+phases:
+  lp:                   # 4a — linear probe
+    epochs: 15
+    optimizer: {name: sgd, lr: 0.001, momentum: 0.9, weight_decay: 0.0}
+    freeze_backbone: true
+  ft:                   # 4b — full fine-tune
+    epochs: 30
+    optimizer: {name: sgd, lr: 0.00001, momentum: 0.9, weight_decay: 0.0001}
+    freeze_backbone: false
+    early_stop_metric: f1
+    early_stop_patience: 5
+
+ckpt_out: /artifacts/checkpoints/stage5/stage4_lpft.pth

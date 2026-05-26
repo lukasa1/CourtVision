@@ -1,0 +1,9 @@
+# Stage 3 — WASB ball detection. PRD §9.3.
+
+input: null    # path to a video clip
+output: null   # path to write the Ball2DSequence JSON
+
+model:
+  name: wasb-basketball
+  weights: /artifacts/checkpoints/wasb_basketball.pth
+  conf_threshold: 0.4

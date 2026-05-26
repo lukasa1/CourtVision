@@ -1,0 +1,14 @@
+name: multisubjects
+root: /data/multisubjects
+fps: 30
+splits:
+  train: train
+  val: val
+  test: test
+n_classes_native: 3
+keypoint_format_native: blazepose33
+keypoint_format_subset: coco17
+notes: |
+  Xu et al. MultiSubjects. 6,144 clips of 3-class basketball action with
+  BlazePose-33 labels. Used for Stage 5 transfer-stage-2 (full fine-tune).
+  Head extended 3 → 4 by zero-padding `background`.

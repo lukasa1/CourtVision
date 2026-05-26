@@ -1,0 +1,13 @@
+# Stage 7 — contest measurements. STUB — weeks 3-4.
+
+defender_search_radius_m: 3.0
+release_window_frames: 5     # frames before/after release for trajectory sampling
+
+composite:
+  weights:
+    wrist_to_trajectory: 0.40
+    wrist_height_advantage: 0.25
+    shooter_velocity: 0.20
+    floor_distance: 0.15
+
+reprojection_error_warn_px: 5

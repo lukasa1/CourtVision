@@ -1,0 +1,16 @@
+# Stage 2 — RTMPose-l Halpe-26. PRD §9.2.
+
+input: null    # path to a video clip
+tracks: null   # path to Stage 1 TrackSequence JSON
+output: null   # path to write the Pose2DSequence JSON
+
+model:
+  name: rtmpose-l
+  cfg: rtmpose-l_8xb256-420e_coco-256x192   # adapted for Halpe-26
+  weights: /artifacts/checkpoints/rtmpose_l_halpe26.pth
+  keypoint_format: halpe26
+  num_keypoints: 26
+
+inference:
+  input_size: [192, 256]   # W, H per RTMPose convention
+  batch_size: 32

@@ -1,0 +1,15 @@
+# Root Hydra config. Stage-specific scripts override via @hydra.main with
+# their own config_name; this root is a placeholder so `hydra-core` can
+# resolve the configs/ directory as a config root.
+
+defaults:
+  - _self_
+
+project:
+  name: courtvision
+  wandb_project: courtvision
+
+paths:
+  # Resolved at runtime by src/courtvision/paths.py; do NOT hardcode here.
+  data: null
+  artifacts: null

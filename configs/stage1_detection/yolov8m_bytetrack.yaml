@@ -1,0 +1,16 @@
+# Stage 1 — YOLOv8m + ByteTrack. Locked values per PRD §9.1.
+
+input: null   # path to a video clip — required at runtime
+output: null  # path to write the TrackSequence JSON — required at runtime
+
+model:
+  name: yolov8m
+  weights: /artifacts/checkpoints/yolov8m.pt
+  classes: [0]      # person
+  conf: 0.4
+  iou: 0.5
+  imgsz: 1280
+
+tracker:
+  name: bytetrack
+  cfg: bytetrack.yaml  # ultralytics' built-in

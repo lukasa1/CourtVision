@@ -1,0 +1,20 @@
+# Stage 5 — PoseConv3D SlowOnly-R50 architecture. PRD §9.5.1.
+
+backbone:
+  name: slowonly_r50
+  mmaction_cfg: slowonly_r50_8xb16-u48-240e_k400-keypoint
+
+input:
+  num_keypoints: 17           # COCO-17 subset of Halpe-26
+  num_frames: 32              # 32 @ 60fps ≈ 0.53s
+  spatial_size: 56            # heatmap H = W = 56
+
+head:
+  num_classes: 4              # dribble / layup / shoot / background
+  dropout: 0.5
+
+ball_stream:
+  enabled: false              # Phase E1-E4: pose-only; ball stream wired in weeks 3-4
+  input_dim: 37               # 32 (z time series) + 5 (scalar summaries)
+  hidden_dim: 64
+  output_dim: 64

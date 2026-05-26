@@ -1,0 +1,24 @@
+# Stage 5 — transfer-stage-5 ball-MLP head training. STUB — weeks 3-4.
+
+defaults:
+  - poseconv3d_slowonly_r50
+  - _self_
+
+ball_stream:
+  enabled: true
+
+data:
+  name: own_footage
+  root: /data/own_footage
+
+init_from: /artifacts/checkpoints/stage5/stage4_lpft.pth
+
+freeze:
+  pose_backbone: true
+  pose_head: true
+
+train:
+  epochs: 20
+  optimizer: {name: adam, lr: 0.001, weight_decay: 0.0}
+
+ckpt_out: /artifacts/checkpoints/stage5/stage5_ball_mlp.pth

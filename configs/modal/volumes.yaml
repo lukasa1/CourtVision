@@ -1,0 +1,8 @@
+# Modal volume names. PRD §8.3.
+
+data:
+  name: courtvision-data
+  mount: /data
+artifacts:
+  name: courtvision-artifacts
+  mount: /artifacts

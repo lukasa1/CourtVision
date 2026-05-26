@@ -1,0 +1,5 @@
+# Stage 1 eval — MOTA / IDF1 against TrackID3x3 ground truth.
+
+tracks_dir: null   # dir containing tracks_*.json files
+gt_dir: null       # TrackID3x3 annotations dir
+target_idf1: 0.70

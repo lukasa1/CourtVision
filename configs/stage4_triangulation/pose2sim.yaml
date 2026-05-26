@@ -1,0 +1,9 @@
+# Stage 4 — Pose2Sim DLT triangulation. PRD §9.4. STUB — weeks 3-4.
+
+session_id: null
+calibration_ref: null   # path to extrinsics file
+pose_smoothing:
+  filter: butterworth
+  cutoff_hz: 6
+  order: 4
+reprojection_error_target_px: 5

@@ -1,0 +1,9 @@
+name: u_arizona
+root: /data/u_arizona
+splits:
+  train: train
+  val: valid
+  test: test
+notes: |
+  U Arizona Roboflow basketball detection dataset (~9.8K images). Held-out
+  slice used for Stage 3 mAP eval. Baseline comparison vs. YOLOv8 (ayushpai).
