@@ -1,4 +1,4 @@
-"""Stage 1 smoke — Phase A: assert stub raises NotImplementedError."""
+"""Stage 1 smoke — Phase B."""
 
 from __future__ import annotations
 
@@ -6,9 +6,96 @@ from pathlib import Path
 
 import pytest
 
-from courtvision.stage1_detection.yolo_bytetrack import run_stage1
+from courtvision.io_utils import read_json_as, write_json
+from courtvision.schemas import Track, TrackSequence
+from courtvision.stage1_detection.eval import evaluate_trackid3x3
 
 
-def test_stage1_stub_raises() -> None:
-    with pytest.raises(NotImplementedError, match="Phase B"):
-        run_stage1(Path("/dev/null"), {})
+@pytest.fixture
+def _base_cfg() -> dict[str, object]:
+    return {
+        "session_id": "smoke",
+        "camera_id": "cam0",
+        "model": {
+            # Force ultralytics auto-download — local dev has no Modal mount.
+            "weights": None,
+            "classes": [0],
+            "conf": 0.4,
+            "iou": 0.5,
+            "imgsz": 128,
+        },
+        "tracker": {"cfg": "bytetrack.yaml"},
+    }
+
+
+def test_run_stage1_emits_valid_sequence(
+    synthetic_clip: Path, _base_cfg: dict[str, object]
+) -> None:
+    """End-to-end: synthetic clip → run_stage1 → schema-valid TrackSequence.
+
+    No people in the clip, so we expect an empty tracks list. The point is
+    to exercise decode → tracker → schema round-trip. This triggers a
+    one-time ultralytics yolov8m.pt download (~50MB) into ``~/.cache``.
+    """
+    from courtvision.stage1_detection.yolo_bytetrack import run_stage1
+
+    seq = run_stage1(synthetic_clip, _base_cfg)
+    assert isinstance(seq, TrackSequence)
+    assert seq.session_id == "smoke"
+    assert seq.camera_id == "cam0"
+    assert seq.fps > 0
+    assert seq.n_frames == 5
+    assert seq.tracks == []
+
+
+def test_evaluate_trackid3x3_perfect_overlap(tmp_path: Path) -> None:
+    """Synthetic GT == predictions → MOTA = IDF1 = 1.0."""
+    tracks_dir = tmp_path / "tracks"
+    gt_dir = tmp_path / "gt"
+    tracks_dir.mkdir()
+    gt_dir.mkdir()
+
+    # 3 frames, 2 stable tracks, identical pred + GT.
+    boxes = {
+        0: {1: [10.0, 10.0, 30.0, 60.0], 2: [80.0, 20.0, 30.0, 60.0]},
+        1: {1: [12.0, 10.0, 30.0, 60.0], 2: [82.0, 20.0, 30.0, 60.0]},
+        2: {1: [14.0, 10.0, 30.0, 60.0], 2: [84.0, 20.0, 30.0, 60.0]},
+    }
+
+    pred_tracks = [
+        Track(track_id=tid, bbox=bb, confidence=0.99, frame_idx=f)
+        for f, frame_dets in boxes.items()
+        for tid, bb in frame_dets.items()
+    ]
+    pred_seq = TrackSequence(
+        session_id="syn",
+        camera_id="cam0",
+        fps=30.0,
+        n_frames=3,
+        tracks=pred_tracks,
+    )
+    write_json(pred_seq, tracks_dir / "tracks_syn_cam0.json")
+
+    # MOT format is 1-based frames.
+    gt_lines = []
+    for f, frame_dets in boxes.items():
+        for tid, (x, y, w, h) in frame_dets.items():
+            gt_lines.append(f"{f + 1},{tid},{x},{y},{w},{h},1,-1,-1,-1")
+    (gt_dir / "syn_cam0.txt").write_text("\n".join(gt_lines))
+
+    result = evaluate_trackid3x3(tracks_dir, gt_dir)
+    assert result["n_sequences"] == 1
+    assert result["summary"]["mota"] == pytest.approx(1.0)
+    assert result["summary"]["idf1"] == pytest.approx(1.0)
+    assert "syn_cam0" in result["per_sequence"]
+
+
+def test_evaluate_trackid3x3_round_trip_schema(tmp_path: Path) -> None:
+    """Empty-tracks TrackSequence round-trips through write/read."""
+    seq = TrackSequence(
+        session_id="rt", camera_id="cam0", fps=60.0, n_frames=0, tracks=[]
+    )
+    p = tmp_path / "tracks_rt_cam0.json"
+    write_json(seq, p)
+    loaded = read_json_as(TrackSequence, p)
+    assert loaded == seq
