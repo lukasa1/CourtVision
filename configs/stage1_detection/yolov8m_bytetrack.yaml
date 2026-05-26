@@ -1,16 +1,23 @@
 # Stage 1 — YOLOv8m + ByteTrack. Locked values per PRD §9.1.
 
-input: null   # path to a video clip — required at runtime
-output: null  # path to write the TrackSequence JSON — required at runtime
+# Required at runtime (Hydra ??? = must-be-overridden):
+input: ???              # path to a video clip
+session_id: ???         # short id used in output filename
+camera_id: ???          # short id used in output filename
+
+# Default derived from the above. Override on the CLI if you want a different layout.
+output: outputs/stage1/${session_id}/tracks_${session_id}_${camera_id}.json
 
 model:
   name: yolov8m
+  # Modal artifacts-volume path. _resolve_weights() falls back to the bare
+  # name (ultralytics auto-download) when this file doesn't exist locally.
   weights: /artifacts/checkpoints/yolov8m.pt
-  classes: [0]      # person
+  classes: [0]          # person
   conf: 0.4
   iou: 0.5
   imgsz: 1280
 
 tracker:
   name: bytetrack
-  cfg: bytetrack.yaml  # ultralytics' built-in
+  cfg: bytetrack.yaml   # ultralytics' built-in
