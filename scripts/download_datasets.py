@@ -94,9 +94,21 @@ def peek_archive(volume_relpath: str, limit: int = 50) -> None:
     import zipfile
     from pathlib import Path
 
+    # Force a fresh view of the volume; without this, a peek invoked
+    # shortly after a download may see a stale snapshot.
+    data_volume.reload()
+
     path = Path("/data") / volume_relpath
     if not path.exists():
         print(f"not found on volume: {path}")
+        parent = path.parent
+        if parent.exists():
+            print(f"\ncontents of {parent} (so you can find the right relpath):")
+            for child in sorted(parent.iterdir()):
+                size = child.stat().st_size if child.is_file() else "-"
+                print(f"  {'dir' if child.is_dir() else 'file':4}  {size:>14}  {child.name}")
+        else:
+            print(f"parent dir also not found: {parent}")
         return
     print(f"{path}  ({path.stat().st_size / 1e9:.2f} GB)")
     if path.suffix.lower() != ".zip":
