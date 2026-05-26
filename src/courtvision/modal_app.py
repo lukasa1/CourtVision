@@ -37,6 +37,17 @@ image = (
         "mmpose>=1.3",
         "mmaction2>=1.2",
     )
+    .pip_install(
+        # Dataset-download clients. Small; live in the shared image because
+        # Modal forbids any build step (incl. `.pip_install`) after
+        # `add_local_python_source`, so per-function image extensions don't
+        # work for these. gdown is pinned to ≥5.2 — older versions lack the
+        # `remaining_ok=True` kwarg used by `download_trackid3x3` to keep
+        # going past Google-Drive per-file permission hiccups.
+        "gdown>=5.2.0",
+        "kaggle",
+        "roboflow",
+    )
     .run_commands("mkdir -p /root/.cache/mmaction2")
     .add_local_python_source("courtvision")
 )
@@ -69,6 +80,21 @@ _WANDB_SECRETS: list[modal.Secret] = (
 _HF_SECRETS: list[modal.Secret] = (
     [modal.Secret.from_local_environ(["HF_TOKEN"])] if os.environ.get("HF_TOKEN") else []
 )
+_KAGGLE_SECRETS: list[modal.Secret] = (
+    [modal.Secret.from_local_environ(["KAGGLE_USERNAME", "KAGGLE_KEY"])]
+    # Both env vars must be present at app-submit time — `from_local_environ`
+    # raises if any named var is missing, which blocks every `modal run` on
+    # this app (same failure mode as F8). Guarding on both makes the secret
+    # list empty when either is unset; downstream Kaggle calls then fail
+    # cleanly with a clear auth error instead of a cryptic app-submit blow-up.
+    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY")
+    else []
+)
+_ROBOFLOW_SECRETS: list[modal.Secret] = (
+    [modal.Secret.from_local_environ(["ROBOFLOW_API_KEY"])]
+    if os.environ.get("ROBOFLOW_API_KEY")
+    else []
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,10 +106,22 @@ _HF_SECRETS: list[modal.Secret] = (
 def run_yolo_bytetrack(video_relpath: str, config: dict[str, Any]) -> str:
     """Stage 1: YOLOv8m + ByteTrack player detection + tracking.
 
+    ``video_relpath`` is relative to the data Volume mount (``/data``).
     Returns the relpath (under ``/artifacts``) of the written
     ``TrackSequence`` JSON.
     """
-    raise NotImplementedError("Phase B")
+    from pathlib import Path as _Path
+
+    from courtvision.io_utils import write_json
+    from courtvision.stage1_detection.yolo_bytetrack import run_stage1
+
+    video_path = _Path("/data") / video_relpath
+    result = run_stage1(video_path, config)
+
+    out_relpath = f"stage1/{result.session_id}/tracks_{result.session_id}_{result.camera_id}.json"
+    write_json(result, _Path("/artifacts") / out_relpath)
+    artifacts_volume.commit()
+    return out_relpath
 
 
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600)
