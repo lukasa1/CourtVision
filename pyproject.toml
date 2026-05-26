@@ -33,6 +33,9 @@ dependencies = [
 
   # Tracking metrics (used by stage1 eval)
   "motmetrics",
+  # ByteTrack assignment solver — ultralytics imports it as `lap`; `lapx` is
+  # the maintained fork with prebuilt macOS arm64 + Linux wheels.
+  "lapx>=0.5.11",
 ]
 
 [project.optional-dependencies]
