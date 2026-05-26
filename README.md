@@ -8,6 +8,8 @@ See `docs/prd.md` for the full PRD (definitive source for architecture, schemas,
 
 ## Setup
 
+All project CLIs (`modal`, `pre-commit`, `pytest`, `python`, etc.) live inside the `uv`-managed virtualenv. Prefix every command with `uv run`, **or** activate the venv once per shell with `source .venv/bin/activate` and drop the prefix.
+
 ```bash
 # 1. Sync deps. Python 3.11 via uv.
 uv sync --extra dev
@@ -16,8 +18,8 @@ uv sync --extra dev
 cp .env.example .env
 
 # 3. Modal auth + secret.
-modal token new
-modal secret create wandb-secret WANDB_API_KEY=$(grep WANDB_API_KEY .env | cut -d= -f2)
+uv run modal token new
+uv run modal secret create wandb-secret WANDB_API_KEY=$(grep WANDB_API_KEY .env | cut -d= -f2)
 
 # 4. Pre-commit (optional but recommended).
 uv run pre-commit install
@@ -32,15 +34,16 @@ Single Modal app, one function per stage. Two persistent Volumes (`courtvision-d
 
 ```bash
 # Deploy.
-modal deploy src/courtvision/modal_app.py
+uv run modal deploy src/courtvision/modal_app.py
+uv run modal app list
 
 # One-time downloads (runs on Modal, not locally).
-modal run scripts/download_datasets.py::download_trackid3x3
-modal run scripts/download_datasets.py::download_multisubjects
-modal run scripts/download_datasets.py::download_finesports
-modal run scripts/download_datasets.py::download_u_arizona
-modal run scripts/download_datasets.py::download_wasb_basketball
-modal run scripts/download_checkpoints.py::download_all
+uv run modal run scripts/download_datasets.py::download_trackid3x3
+uv run modal run scripts/download_datasets.py::download_multisubjects
+uv run modal run scripts/download_datasets.py::download_finesports
+uv run modal run scripts/download_datasets.py::download_u_arizona
+uv run modal run scripts/download_datasets.py::download_wasb_basketball
+uv run modal run scripts/download_checkpoints.py::download_all
 
 # Pull a small local mirror for dataloader iteration.
 uv run python scripts/sync_mirror.py
@@ -57,7 +60,7 @@ uv run python scripts/stage1_run.py input=data/mirror/multisubjects/clip_001.mp4
 Modal example:
 
 ```bash
-modal run scripts/stage1_run.py -- input=/data/trackid3x3/test session_id=trackid_test
+uv run modal run scripts/stage1_run.py -- input=/data/trackid3x3/test session_id=trackid_test
 ```
 
 ## Repository layout
