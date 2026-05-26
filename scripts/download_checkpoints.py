@@ -5,10 +5,14 @@ weights onto the ``courtvision-artifacts`` Modal Volume.
 
 Usage::
 
-    modal run scripts/download_checkpoints.py::download_all
+    uv run modal run scripts/download_checkpoints.py::download_yolov8m
+    uv run modal run scripts/download_checkpoints.py::download_all
 """
 
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 from courtvision.modal_app import app, artifacts_volume, image
 
@@ -17,9 +21,28 @@ _CKPT_DIR = "/artifacts/checkpoints"
 
 @app.function(image=image, volumes={"/artifacts": artifacts_volume}, timeout=600, cpu=2)
 def download_yolov8m() -> str:
-    # ultralytics auto-downloads on first instantiation. Just trigger it and
-    # copy the resulting weight to the Volume.
-    raise NotImplementedError("Phase A user-test step")
+    """Pull yolov8m.pt onto /artifacts/checkpoints/. Idempotent."""
+    target = Path(_CKPT_DIR) / "yolov8m.pt"
+    if target.exists():
+        print(f"yolov8m.pt already at {target} ({target.stat().st_size:,} bytes); skipping")
+        return str(target)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # YOLO auto-downloads "yolov8m.pt" into cwd; chdir so it lands at the
+    # final location with no extra copy.
+    from ultralytics import YOLO  # type: ignore[attr-defined]
+
+    prev_cwd = os.getcwd()
+    os.chdir(target.parent)
+    try:
+        YOLO("yolov8m.pt")  # side effect: downloads to cwd
+    finally:
+        os.chdir(prev_cwd)
+
+    assert target.exists(), f"download failed: {target} missing"
+    artifacts_volume.commit()
+    print(f"wrote {target} ({target.stat().st_size:,} bytes)")
+    return str(target)
 
 
 @app.function(image=image, volumes={"/artifacts": artifacts_volume}, timeout=1200, cpu=2)
