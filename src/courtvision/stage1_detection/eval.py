@@ -82,16 +82,24 @@ def _accumulate_one(pred: SequenceDets, gt: SequenceDets) -> mm.MOTAccumulator:
 def _pair_files(tracks_dir: Path, gt_dir: Path) -> list[tuple[Path, Path, str]]:
     """Return list of ``(pred_json, gt_txt, key)`` for matchable sequences.
 
-    Matches by stripping the ``tracks_`` prefix from the pred filename.
+    Strips the ``tracks_`` prefix from the pred filename, then tries:
+    (1) ``{stem}.txt``; (2) ``{stem-without-last-_segment}.txt``. The
+    fallback lets a user name a clip ``session_id=basket_S2T1_pre`` with
+    ``camera_id=cam0`` and still match a GT file ``basket_S2T1_pre.txt``.
     """
     pairs: list[tuple[Path, Path, str]] = []
     for pred in sorted(tracks_dir.glob("tracks_*.json")):
         key = pred.stem.removeprefix("tracks_")
-        gt = gt_dir / f"{key}.txt"
-        if not gt.exists():
-            _log.warning("no GT file for %s (looked for %s)", pred.name, gt)
+        candidates = [gt_dir / f"{key}.txt"]
+        if "_" in key:
+            candidates.append(gt_dir / f"{key.rsplit('_', 1)[0]}.txt")
+        gt = next((c for c in candidates if c.exists()), None)
+        if gt is None:
+            _log.warning(
+                "no GT file for %s (tried %s)", pred.name, [str(c) for c in candidates]
+            )
             continue
-        pairs.append((pred, gt, key))
+        pairs.append((pred, gt, gt.stem))
     return pairs
 
 
