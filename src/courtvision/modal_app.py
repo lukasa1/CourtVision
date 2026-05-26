@@ -12,6 +12,7 @@ fill them in, calling the corresponding ``courtvision.stageN_*`` modules.
 
 from __future__ import annotations
 
+import os
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -52,9 +53,16 @@ VOLUMES: dict[str | PurePosixPath, modal.Volume | modal.CloudBucketMount] = {
     "/artifacts": artifacts_volume,
 }
 
-# W&B credential mounted as a Modal Secret. Create with:
-#   modal secret create wandb-secret WANDB_API_KEY=...
-WANDB_SECRET = modal.Secret.from_name("wandb-secret", required_keys=[])
+# W&B credential: pulled from the local shell's WANDB_API_KEY at submit
+# time and shipped to the Modal function as a one-off secret. No
+# `modal secret create` step needed.
+# Falls back to no secret if WANDB_API_KEY isn't in the local env —
+# courtvision.logging.init_wandb auto-disables W&B in that case.
+_WANDB_SECRETS: list[modal.Secret] = (
+    [modal.Secret.from_local_environ(["WANDB_API_KEY"])]
+    if os.environ.get("WANDB_API_KEY")
+    else []
+)
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +107,7 @@ def run_wasb(video_relpath: str, config: dict[str, Any]) -> str:
     image=image,
     gpu="A10G",
     volumes=VOLUMES,
-    secrets=[WANDB_SECRET],
+    secrets=_WANDB_SECRETS,
     timeout=3600 * 36,
 )
 def train_stage2_multisubjects(config: dict[str, Any]) -> str:
@@ -114,7 +122,7 @@ def train_stage2_multisubjects(config: dict[str, Any]) -> str:
     image=image,
     gpu="A100-40GB",
     volumes=VOLUMES,
-    secrets=[WANDB_SECRET],
+    secrets=_WANDB_SECRETS,
     timeout=3600 * 48,
 )
 def train_stage3_finesports(config: dict[str, Any]) -> str:
@@ -140,7 +148,6 @@ def eval_external_benchmark(ckpt_relpath: str, dataset: str) -> dict[str, Any]:
 
 __all__ = [
     "VOLUMES",
-    "WANDB_SECRET",
     "app",
     "artifacts_volume",
     "data_volume",

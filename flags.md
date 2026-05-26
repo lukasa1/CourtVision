@@ -81,3 +81,17 @@ Format per flag:
 - **Phase raised:** A
 - **Description:** PRD §6 says "decisions.md — Symlink or copy from Milestone 2 folder." Chose copy (`docs/decisions.md`) rather than symlink because the repo lives in the parent project folder and a symlink wouldn't work post-clone.
 - **Resolution:** Done. If the source `decisions.md` is updated, re-copy manually.
+
+---
+
+## F8 — Named Modal `wandb-secret` replaced with local-env passthrough
+
+- **Status:** RESOLVED (mid-Phase-A user-test step)
+- **Phase raised:** A (caught during user test of `modal run scripts/download_datasets.py::download_trackid3x3`)
+- **Description:** Originally `modal_app.py` referenced `modal.Secret.from_name("wandb-secret", required_keys=[])` at module level and attached it to the two training function decorators. Modal validates *all* secrets in an app at submit time, even for `modal run`s that target an unrelated function — so the download functions failed with `Secret 'wandb-secret' not found` until the user manually created the named secret.
+- **Why it matters:** Phase A `modal run` commands should work end-to-end without a separate `modal secret create` step. The original README had that step, but it's brittle (silent skip if `.env` doesn't have the key) and adds friction.
+- **Resolution:** Switched to `modal.Secret.from_local_environ(["WANDB_API_KEY"])`, attached conditionally only when `WANDB_API_KEY` is in the local shell environment at submit time. No persistent Modal secret needed. Behavior:
+  - Local shell has `WANDB_API_KEY` → secret passes through to Modal function; W&B logging works.
+  - Local shell doesn't have it → empty secrets list; `courtvision.logging.init_wandb` falls back to `WANDB_MODE=disabled`.
+  - README updated: replaced "Modal auth + secret" step with just "Modal auth"; added a note about `set -a; source .env; set +a` before training runs.
+- **Commit:** `0440048`

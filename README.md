@@ -17,9 +17,8 @@ uv sync --extra dev
 # 2. Local env — fill in WANDB / Modal / HF tokens.
 cp .env.example .env
 
-# 3. Modal auth + secret.
+# 3. Modal auth.
 uv run modal token new
-uv run modal secret create wandb-secret WANDB_API_KEY=$(grep WANDB_API_KEY .env | cut -d= -f2)
 
 # 4. Pre-commit (optional but recommended).
 uv run pre-commit install
@@ -31,6 +30,14 @@ uv run pytest
 ## Modal infrastructure
 
 Single Modal app, one function per stage. Two persistent Volumes (`courtvision-data`, `courtvision-artifacts`) hold datasets and checkpoints respectively.
+
+W&B credentials are pulled from your local shell at submit time — no `modal secret create` step. Before launching a training run, export the key from `.env`:
+
+```bash
+set -a; source .env; set +a   # loads WANDB_API_KEY into the shell
+```
+
+If `WANDB_API_KEY` isn't set, training functions still run but with W&B disabled (no logging).
 
 ```bash
 # Deploy.
