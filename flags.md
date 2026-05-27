@@ -63,12 +63,26 @@ Format per flag:
 
 ## F5 — TrackID3x3 wrist-keypoint availability unverified
 
-- **Status:** OPEN (partial — schema almost certainly includes wrists; exact index unverified)
+- **Status:** RESOLVED (2026-05-26) — wrists are at indices 5 and 6 of the 10-keypoint schema. Wrist-PCK eval on TrackID3x3 is viable.
 - **Phase raised:** A (documented as a pre-existing PRD risk)
 - **Description:** PRD §9.2 makes wrist PCK@0.05 on TrackID3x3 a primary Phase C acceptance gate. PRD §13 risk #5 flags that TrackID3x3 may only label a subset of keypoints that doesn't include wrists.
 - **Why it matters:** If wrists aren't labeled, the Phase C PCK eval has to fall back to MultiSubjects-only, and the wrist-PCK ≥ 0.85 gate moves to a different dataset.
-- **Progress (2026-05-26):** Inspected `ground_truth/Indoor/pose/*.json` after git-cloning the upstream repo. Each annotation is **10 unnamed `[x, y]` pairs per player per frame** (jersey-color-keyed). The repo README says only "10 pose keypoints"; scripts only reference *court* keypoints, not body pose. Coordinate-spread analysis (head-down → top-y to bottom-y ~125 px on a small player figure, x widens with y) is consistent with a standard 10-point upper-body schema (head + 2 shoulders + 2 elbows + 2 wrists + 2 hips + 1 center, or similar) — wrists almost certainly present, but the exact keypoint index is not documented in the repo.
-- **Resolution / next step:** Confirm by either (a) skimming the arXiv paper (2503.18282) for the keypoint definition, or (b) overlaying one annotation on a frame and identifying anatomical landmarks. ~5-min check at the start of Phase C.
+- **Resolution:** Rendered the 10 keypoints from `ground_truth/Indoor/pose/basket_S4T4_post.json` onto `videos/Indoor/raw/basket_S4T4_post.mp4` frame 221 — picked because it has the largest spatial spread (Red_Jersey mid-dribble, right hand extended on the ball). Keypoint 5 sits at the extended right hand (far from the body cluster), unambiguously identifying it as the right wrist. Inferred schema by anatomical position:
+
+  | idx | landmark |
+  |---:|---|
+  | 0 | head/nose |
+  | 1 | R-shoulder |
+  | 2 | L-shoulder |
+  | 3 | R-elbow |
+  | 4 | L-elbow |
+  | **5** | **R-wrist** |
+  | **6** | **L-wrist** |
+  | 7 | hip/pelvis center |
+  | 8 | R-ankle |
+  | 9 | L-ankle |
+
+  Phase C wrist-PCK code should index `[5, 6]` from each player's keypoint array for the wrist landmarks. Note: the pose annotations are *per-frame, jersey-color-keyed*, not track-ID-keyed — Stage 2 inference will need to match its detections to jersey-color GT (via spatial proximity, since color isn't in the inference output). README: "10 pose keypoints of each player **for some frames only**" — confirmed (not every frame has annotations).
 
 ---
 
