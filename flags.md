@@ -23,11 +23,17 @@ Format per flag:
 
 ## F2 — Dataset source URLs not yet filled
 
-- **Status:** OPEN (needs user input during Phase A user-test step)
+- **Status:** OPEN (partial — see Progress)
 - **Phase raised:** A
-- **Description:** `scripts/download_datasets.py` has one Modal function per dataset (`download_trackid3x3`, `download_multisubjects`, `download_finesports`, `download_u_arizona`, `download_wasb_basketball`). Each function body is `raise NotImplementedError("fill source URL during Phase A user-test step")` with the canonical source noted in a comment.
+- **Description:** `scripts/download_datasets.py` has one Modal function per dataset. Each function body was originally `raise NotImplementedError("fill source URL during Phase A user-test step")` with the canonical source noted in a comment.
 - **Why it matters:** Phases B/C/D/E need datasets on the `courtvision-data` Modal Volume. Without URLs filled in, `modal run scripts/download_datasets.py::download_*` won't actually download anything.
-- **Resolution / next step:** Lukas fills in URLs as datasets are sourced. Suggested order: TrackID3x3 (smallest, smoke test) → U Arizona → WASB basketball → MultiSubjects → FineSports. **FineSports note (PRD §13 open item #2):** access is gated; if request denied, fall back to Path A (skip transfer-stage-3) and proceed.
+- **Progress (2026-05-26):**
+  - `download_multisubjects` — RESOLVED (HF snapshot; on Volume).
+  - `download_finesports` — RESOLVED for the frames zip (HF snapshot; on Volume). Fine-grained labels + bboxes + splits pending the FineSports-GT.pkl email request (separate; tracked in project memory).
+  - `download_trackid3x3` — RESOLVED (gdown from public Google Drive folder per `open-starlab/TrackID3x3`).
+  - `download_u_arizona` — REPLACED by `download_deepsportradar` (primary) + `download_roboflow_basketball` (secondary). See F12.
+  - `download_wasb_basketball` — DEFERRED (upstream 404). See F11.
+- **Resolution / next step:** Treat F2 as effectively closed for Phase A scope; remaining loose ends tracked under F11 (WASB) and F12 (U Arizona substitution) and the FineSports-GT.pkl email memory.
 
 ---
 
@@ -57,11 +63,12 @@ Format per flag:
 
 ## F5 — TrackID3x3 wrist-keypoint availability unverified
 
-- **Status:** OPEN (will be checked first thing in Phase C, per PRD §13 risk #5)
+- **Status:** OPEN (partial — schema almost certainly includes wrists; exact index unverified)
 - **Phase raised:** A (documented as a pre-existing PRD risk)
 - **Description:** PRD §9.2 makes wrist PCK@0.05 on TrackID3x3 a primary Phase C acceptance gate. PRD §13 risk #5 flags that TrackID3x3 may only label a subset of keypoints that doesn't include wrists.
 - **Why it matters:** If wrists aren't labeled, the Phase C PCK eval has to fall back to MultiSubjects-only, and the wrist-PCK ≥ 0.85 gate moves to a different dataset.
-- **Resolution / next step:** First action of Phase C: load TrackID3x3 annotation files and check whether wrist is in the keypoint schema. Update Phase C scope on the answer.
+- **Progress (2026-05-26):** Inspected `ground_truth/Indoor/pose/*.json` after git-cloning the upstream repo. Each annotation is **10 unnamed `[x, y]` pairs per player per frame** (jersey-color-keyed). The repo README says only "10 pose keypoints"; scripts only reference *court* keypoints, not body pose. Coordinate-spread analysis (head-down → top-y to bottom-y ~125 px on a small player figure, x widens with y) is consistent with a standard 10-point upper-body schema (head + 2 shoulders + 2 elbows + 2 wrists + 2 hips + 1 center, or similar) — wrists almost certainly present, but the exact keypoint index is not documented in the repo.
+- **Resolution / next step:** Confirm by either (a) skimming the arXiv paper (2503.18282) for the keypoint definition, or (b) overlaying one annotation on a frame and identifying anatomical landmarks. ~5-min check at the start of Phase C.
 
 ---
 
@@ -117,3 +124,26 @@ Format per flag:
 - **Description:** Modal rejected `train_stage2_multisubjects` (`timeout=3600*36` = 36 h) and `train_stage3_finesports` (`timeout=3600*48` = 48 h) with `InvalidError('Timeout must be between 10s and 86400s (inclusive).')`. Timeout validation happens at app-submit time, so this blocked every `modal run`, including downloads.
 - **Why it matters:** PRD §9.5.2 estimates MultiSubjects fine-tune ≈ 12-24 h on A10G and FineSports fine-tune ≈ 24-48 h on A100-40GB. The A10G run fits inside a 24 h timeout; FineSports on A100-40GB may not.
 - **Resolution / next step:** Both training timeouts capped at `_MODAL_MAX_TIMEOUT_S = 3600 * 24` (Modal's hard limit). Phase E4 will need to implement checkpoint-resume on FineSports so a multi-day run becomes a sequence of ≤24 h invocations — that's the right pattern for long jobs on Modal regardless of the cap.
+
+---
+
+## F11 — WASB basketball subset upstream link is 404
+
+- **Status:** DEFERRED (Phase D)
+- **Phase raised:** A (during dataset-download user-test step)
+- **Description:** `nttcom/WASB-SBDT/GET_STARTED.md` points at `ruiyan1995.github.io/SAM.html` for the basketball-subset dataset; that URL returns HTTP 404. No Zenodo, HF, or alternate mirror found via public search.
+- **Why it matters:** PRD §9.3 second acceptance criterion ("release-window recall ≥ 90% on ~30 release moments") depends on this dataset. Not needed for inference (the Stage 3 WASB *model* checkpoint is separate, tracked in F3) or for training. Dropping this eval gate trims one Phase 1 acceptance criterion.
+- **Resolution / next step:** `download_wasb_basketball` is now a soft-defer (print + return, not raise) pointing here. Revisit when Phase D / Stage 3 eval needs to run. Options: (a) Wayback Machine + GitHub-issue search on `nttcom/WASB-SBDT` for a mirror; (b) email the nttcom authors; (c) substitute SportsMOT or another NBA broadcast dataset; (d) hand-label ~30 release moments from YouTube clips. Decision deferred to Phase D.
+
+---
+
+## F12 — "U Arizona Roboflow basketball" dataset could not be verified; substituted
+
+- **Status:** RESOLVED (by substitution)
+- **Phase raised:** A (during dataset-download user-test step)
+- **Description:** PRD §8.3 and `decisions.md` Decision 3 reference a "U Arizona Roboflow basketball" dataset (~9,808 images; classes `ball, basketball, people, person, made, rim, shoot`) for the Stage 3 ball-detection mAP eval. Aggressive WebSearch + WebFetch (Roboflow Universe browse/search pages return 403; project pages not indexed) failed to surface a working URL. Search engines summarize the dataset's existence (likely from older training data) but never produce a clickable link — strong signal the URL is unverified.
+- **Why it matters:** Stage 3 needs a downloadable basketball ball-detection dataset for the mAP@0.5 / mAP@0.5:0.95 acceptance gate (Decision 3).
+- **Resolution:** Substituted two datasets per user direction (download both; use DeepSportradar as the headline number):
+  - **Primary (headline mAP):** DeepSportradar Basketball Instants — `deepsportradar/basketball-instants-dataset` on Kaggle. Academic benchmark (ACM MMSports 2022, https://arxiv.org/abs/2208.08190), 1,456 images / 338 ball annotations, CC-BY-NC-SA 4.0, professional LNB-Pro-A broadcast video at 2-5 MP. mAP numbers are literature-comparable — what Decision 3 actually cares about.
+  - **Secondary (volume + diversity):** OwnProjects `basketball-w2xcw` on Roboflow Universe. Closest class-signature match to the original PRD intent (`ball, made, person, rim, shoot`), ~2-5K images (page 403s to WebFetch; agent estimate), public domain. Reported alongside DeepSportradar to demonstrate cross-dataset robustness.
+- **Action:** `decisions.md` Decision 3 should be updated in a follow-up commit to reference these two datasets by name instead of "U Arizona Roboflow basketball." Out of scope for this flag (decisions.md is a sourced Milestone-2 document; Lukas to decide whether to amend or add a footnote).

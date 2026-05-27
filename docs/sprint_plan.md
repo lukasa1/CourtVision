@@ -9,7 +9,7 @@ Distilled from PRD §10 and §15. The PRD is the source of truth; this file is a
 | **A** | Scaffold repo, schemas, Modal app skeleton, dataset download scripts, stub stage modules | Day 0 |
 | **B** | Stage 1 — YOLOv8m + ByteTrack inference + MOTA/IDF1 eval on TrackID3x3 | Day 1 |
 | **C** | Stage 2 — RTMPose-l Halpe-26 inference + wrist PCK eval | Day 2 |
-| **D** | Stage 3 — WASB ball detection + mAP eval on U Arizona + release-window recall on WASB basketball | Day 3 |
+| **D** | Stage 3 — WASB ball detection + mAP eval on DeepSportradar (primary) + Roboflow basketball (secondary); WASB-basketball recall deferred (F11) | Day 3 |
 | **E** | Stage 5 — PoseConv3D classifier scaffold + transfer-stage 2 (MultiSubjects, A10G) + transfer-stage 3 (FineSports, A100-40GB) + sliding-window inference + ablation harness | Days 4-10 |
 
 Phase E is sub-phased E1-E5 — see PRD §10 Phase E.
@@ -53,7 +53,7 @@ Anything else needs explicit user approval.
 - **A:** `uv sync` works; `pytest` green; all configs parse; ruff + mypy clean.
 - **B:** valid `TrackSequence` JSONs; IDF1 ≥ 0.70 on TrackID3x3.
 - **C:** valid `Pose2DSequence` JSONs; wrist PCK@0.05 ≥ 0.85 (or MultiSubjects fallback).
-- **D:** valid `Ball2DSequence` JSONs; mAP@0.5 ≥ 0.85 on U Arizona; release-window recall ≥ 90% on WASB basketball (or Phase 2 ★ trigger flagged).
+- **D:** valid `Ball2DSequence` JSONs; mAP@0.5 ≥ 0.85 on DeepSportradar Basketball Instants test split (primary; threshold may need calibration). Secondary mAP on Roboflow basketball. Release-window recall on WASB basketball deferred (F11).
 - **E1-E5:** see PRD §10 sub-phase tables; final gate requires user-confirmed E5 qualitative inference on MultiSubjects + FineSports.
 
 ## Risk register (PRD §13)

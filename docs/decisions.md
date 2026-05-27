@@ -44,6 +44,7 @@ For every decision, capture: (a) the choice, (b) the intuition, (c) what we're c
      - Compare on identical held-out test data
    - **Eval plan:**
      - **mAP@0.5 / mAP@0.5-0.95** on held-out slice of U Arizona Roboflow basketball dataset (~9.8K images) → literature-comparable number
+     - *Post-script (2026-05-26):* "U Arizona Roboflow basketball" dataset could not be verified at any public URL. Substituted with **DeepSportradar Basketball Instants** (Kaggle; ACM MMSports 2022; primary, headline mAP) + **Roboflow `ownprojects/basketball-w2xcw`** (~9.7K images; secondary). See `flags.md` F12 and PRD §8.3 / §9.3 for current state. Original wording preserved here for Milestone-2 record-keeping.
      - **Qualitative check** on ~5-10 clips each from TrackID3x3 and MultiSubjects → catches catastrophic domain-shift failures
      - **Release-window recall** on WASB's basketball subset (NBA broadcast videos with per-frame ball annotations): hand-pick ~30 obvious shot release moments (~10 min), compute detection rate in ±15-frame windows using their existing ball labels. No labeling on our own footage for now; defer to final report if needed.
    - **Phase 1 → Phase 2 (★) gate:** release-window recall ≥ 90% on WASB external eval. If gate fails, trigger the 5-day Phase 2 custom-training plan from scope doc §5.2. (Note: WASB basketball is NBA broadcast, harder ball pixel size than our amateur half-court — passing this gate likely means our footage will be at least as good, but not guaranteed.)

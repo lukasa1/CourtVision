@@ -43,7 +43,7 @@ All off-the-shelf tool choices are **locked for Phase 1** — no swappable backe
 1. Scaffold a clean, reproducible Python repository ready for Stages 1, 2, 3, 5 implementation.
 2. Implement **Stage 1** (YOLOv8m + ByteTrack) — off-the-shelf inference + quantitative MOTA/IDF1 eval on TrackID3x3.
 3. Implement **Stage 2** (RTMPose-l Halpe-26) — off-the-shelf inference + wrist-accuracy eval on TrackID3x3 and BlazePose-33→COCO-17 comparison on MultiSubjects.
-4. Implement **Stage 3** (WASB) — off-the-shelf inference + mAP eval on U Arizona slice + release-window recall on WASB basketball subset.
+4. Implement **Stage 3** (WASB) — off-the-shelf inference + mAP eval on DeepSportradar Basketball Instants (primary, ACM MMSports 2022 benchmark) and Roboflow `ownprojects/basketball-w2xcw` (secondary). Release-window recall on WASB basketball subset deferred per `flags.md` F11.
 5. Implement **Stage 5 scaffolding + pretraining** — PoseConv3D Kinetics-400 checkpoint loaded, MultiSubjects dataloader + Stage 2 training run kicked off, FineSports dataloader + Stage 3 training run kicked off. Stage 4 (LP-FT on own footage) and Stage 5 ball-MLP head training are out of scope until own footage exists.
 6. Define **I/O contracts** for Stages 4, 6, 7, 8 so downstream code can be written without refactoring later.
 
@@ -185,7 +185,8 @@ CourtVision/
 │   │   ├── trackid3x3.yaml
 │   │   ├── multisubjects.yaml
 │   │   ├── finesports.yaml
-│   │   ├── u_arizona.yaml
+│   │   ├── deepsportradar.yaml
+│   │   ├── roboflow_basketball.yaml
 │   │   └── own_footage.yaml           # (stub — paths TBD)
 │   ├── stage1_detection/
 │   │   ├── yolov8m_bytetrack.yaml     # Locked model + tracker config
@@ -292,7 +293,7 @@ CourtVision/
 │   ├── stage5_train_finesports.py
 │   ├── stage5_eval_external.py
 │   ├── download_checkpoints.py        # Pulls Kinetics PoseConv3D + RTMPose-l + WASB + YOLO weights to Volume
-│   └── download_datasets.py           # Pulls TrackID3x3 / MultiSubjects / FineSports / U Arizona to Volume
+│   └── download_datasets.py           # Pulls TrackID3x3 / MultiSubjects / FineSports / DeepSportradar / Roboflow basketball to Volume
 │
 ├── notebooks/                         # Exploration
 │   ├── 00_setup_check.ipynb           # Verify env, Modal connection
@@ -566,8 +567,9 @@ def eval_external_benchmark(ckpt_relpath: str, dataset: str) -> dict:
 | MultiSubjects | ~30-50 GB | `/data/multisubjects/` | Stage 5 transfer-stage-2 training; classifier benchmark |
 | FineSports | ~50-100 GB | `/data/finesports/` | Stage 5 transfer-stage-3 training; temporal-localization benchmark |
 | TrackID3x3 Indoor | ~5-10 GB | `/data/trackid3x3/` | Stage 1 IDF1 eval; Stage 2 wrist PCK eval |
-| U Arizona Roboflow basketball | ~2 GB | `/data/u_arizona/` | Stage 3 mAP eval |
-| WASB basketball subset | ~5-10 GB | `/data/wasb_basketball/` | Stage 3 release-window recall eval |
+| DeepSportradar Basketball Instants | ~6 GB | `/data/deepsportradar/` | Stage 3 mAP eval (primary; ACM MMSports 2022 benchmark) |
+| Roboflow `ownprojects/basketball-w2xcw` | ~150 MB | `/data/roboflow_basketball/` | Stage 3 mAP eval (secondary; cross-dataset robustness) |
+| WASB basketball subset | ~5-10 GB | `/data/wasb_basketball/` | Stage 3 release-window recall eval — **DEFERRED**, upstream link 404s (see `flags.md` F11) |
 | Own footage | (TBD weeks 3-4) | `/data/own_footage/` | Stage 5 transfer-stage-4 LP-FT (deferred) |
 
 **Pretrained checkpoints on `courtvision-artifacts`:**
@@ -672,14 +674,15 @@ Inside Modal functions, the `wandb` key is mounted via `modal.Secret.from_name("
 **Model:** WASB, basketball-pretrained, off-the-shelf. Code via `nttcom/WASB-SBDT`.
 **Output:** `ball2d_{session_id}_{camera_id}.json`.
 **Datasets used for eval:**
-- **U Arizona Roboflow basketball** (~9.8K images) — held-out slice for mAP@0.5 and mAP@0.5:0.95. Also run YOLOv8 (ayushpai) as the baseline for the milestone comparison.
-- **WASB basketball subset** — release-window recall: hand-pick ~30 release moments, compute detection rate in ±15-frame windows around each.
+- **DeepSportradar Basketball Instants** (1,456 images / 338 ball annotations; ACM MMSports 2022 benchmark; LNB Pro A broadcast footage; Kaggle) — primary mAP@0.5 / mAP@0.5:0.95 reporting; mAP numbers are literature-comparable. Also run YOLOv8 (ayushpai) as the baseline for the milestone comparison.
+- **Roboflow `ownprojects/basketball-w2xcw`** (~9.7K images; classes: ball/made/person/rim/shoot) — secondary mAP for cross-dataset robustness.
+- **WASB basketball subset** — release-window recall: hand-pick ~30 release moments, compute detection rate in ±15-frame windows around each. **Status: deferred** — upstream link is 404; see `flags.md` F11.
 - **MultiSubjects + FineSports** — qualitative checks on continuous video.
 
 **Acceptance criteria:**
 - Runs on a clip and emits a valid `Ball2DSequence`.
-- mAP@0.5 ≥ 0.85 on U Arizona slice.
-- Release-window recall ≥ 90% on WASB basketball subset (Phase 1 → Phase 2 gate per Decision 3).
+- mAP@0.5 ≥ 0.85 on DeepSportradar Basketball Instants test split (primary; threshold may need calibration once the baseline run is in).
+- Release-window recall ≥ 90% on WASB basketball subset (Phase 1 → Phase 2 gate per Decision 3) — **deferred until WASB-basketball source is resolved per `flags.md` F11**.
 
 ### 9.4 Stage 4 — Triangulation (STUB)
 
@@ -951,7 +954,7 @@ You will assess Stage 1 quantitatively and qualitatively. Claude Code provides t
 
 **Scope:**
 1. Implement `src/courtvision/stage3_ball/wasb_inference.py` — wraps WASB inference, returns `Ball2DSequence`.
-2. Implement `src/courtvision/stage3_ball/eval.py` — mAP@0.5 / mAP@0.5:0.95 on U Arizona slice; release-window recall on WASB basketball subset.
+2. Implement `src/courtvision/stage3_ball/eval.py` — mAP@0.5 / mAP@0.5:0.95 on DeepSportradar Basketball Instants (primary) and Roboflow `ownprojects/basketball-w2xcw` (secondary). Release-window recall on WASB basketball subset is deferred per `flags.md` F11.
 3. Fill in `modal_app.py::run_wasb`. **WASB integration risk (Section 13.3):** if `pip install git+...` fails in the shared image, build a dedicated image with WASB's exact deps and split the function into its own Modal app or function with a separate image. Flag and stop if this happens.
 4. Implement `scripts/stage3_run.py` and `scripts/stage3_eval.py`.
 5. Update `configs/stage3_ball/*.yaml`.
@@ -970,11 +973,11 @@ You will assess Stage 1 quantitatively and qualitatively. Claude Code provides t
 **USER TEST STEP (Lukas runs this — Phase D):**
 
 **Quantitative (Modal):**
-1. `modal run scripts/stage3_run.py -- input=/data/u_arizona session_id=u_arizona_eval` — produces ball JSONs on a held-out slice.
-2. `modal run scripts/stage3_eval.py -- preds_dir=/artifacts/stage3/u_arizona_eval gt_dir=/data/u_arizona/annotations` — outputs `eval_stage3_u_arizona.json` with mAP@0.5 and mAP@0.5:0.95.
+1. `modal run scripts/stage3_run.py -- input=/data/deepsportradar session_id=deepsportradar_eval` — produces ball JSONs on the DeepSportradar test split.
+2. `modal run scripts/stage3_eval.py -- preds_dir=/artifacts/stage3/deepsportradar_eval gt_dir=/data/deepsportradar` — outputs `eval_stage3_deepsportradar.json` with mAP@0.5 and mAP@0.5:0.95. Repeat with `roboflow_basketball` paths for the secondary number.
 3. `modal run scripts/stage3_eval.py -- preds_dir=/artifacts/stage3/wasb_basketball gt_dir=/data/wasb_basketball/annotations mode=release_window_recall` — outputs `eval_stage3_wasb_recall.json`.
 4. **Your check:**
-   - mAP@0.5 ≥ 0.85 on U Arizona slice.
+   - mAP@0.5 ≥ 0.85 on DeepSportradar Basketball Instants test split (primary).
    - Release-window recall ≥ 90% on WASB basketball subset.
    - If recall < 90%, this triggers the Phase 2 ★ gate (Decision 3) — note it but do NOT pivot in this sprint; flag for week 3-4 decision.
 
@@ -1146,7 +1149,7 @@ This is the single checklist mirroring Section 10's per-phase STOP gates. By the
 - [ ] **Phase A:** Repo scaffolded per Section 6; `uv sync` works; `pytest` is green; Modal app deployed; both Volumes populated with datasets + pretrained checkpoints; local mirror synced.
 - [ ] **Phase B (Stage 1):** Produces valid `TrackSequence` JSONs; IDF1 ≥ 0.70 on TrackID3x3 (or documented acceptable deviation); user-confirmed qualitative pass on MultiSubjects + FineSports.
 - [ ] **Phase C (Stage 2):** Produces valid `Pose2DSequence` JSONs; wrist PCK@0.05 ≥ 0.85 on TrackID3x3 (or MultiSubjects fallback per Risk Register §13.1); user-confirmed qualitative pass.
-- [ ] **Phase D (Stage 3):** Produces valid `Ball2DSequence` JSONs; mAP@0.5 ≥ 0.85 on U Arizona; release-window recall ≥ 90% on WASB basketball subset (or Phase 2 ★ trigger flagged per Decision 3).
+- [ ] **Phase D (Stage 3):** Produces valid `Ball2DSequence` JSONs; mAP@0.5 ≥ 0.85 on DeepSportradar Basketball Instants test split (plus secondary mAP on Roboflow basketball for cross-dataset robustness). Release-window recall on WASB basketball subset deferred per `flags.md` F11.
 - [ ] **Phase E (Stage 5):**
   - E1: Kinetics checkpoint loads, forward-pass on synthetic input returns shape `[1, 4]`.
   - E2: MultiSubjects dataloader returns valid tensors; train entrypoint runs 1 step locally without error.
