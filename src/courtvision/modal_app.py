@@ -128,6 +128,34 @@ def run_yolo_bytetrack(video_relpath: str, config: dict[str, Any]) -> str:
     return out_relpath
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=1800, cpu=2)
+def make_stage1_overlay(
+    video_relpath: str, tracks_relpath: str, max_seconds: float | None = None
+) -> str:
+    """Render Stage 1 bbox + track-id overlay on top of the source video.
+
+    Reads ``tracks_relpath`` (a ``TrackSequence`` JSON under ``/artifacts``)
+    and ``video_relpath`` (under ``/data``); writes overlay MP4 to
+    ``/artifacts/stage1_overlays/<session>_<camera>.mp4`` and returns
+    that relpath. CPU-only.
+    """
+    from pathlib import Path as _Path
+
+    from courtvision.io_utils import read_json_as
+    from courtvision.schemas import TrackSequence
+    from courtvision.stage1_detection.overlay import make_overlay_video
+
+    video_path = _Path("/data") / video_relpath
+    tracks_path = _Path("/artifacts") / tracks_relpath
+    sequence = read_json_as(TrackSequence, tracks_path)
+
+    out_relpath = f"stage1_overlays/{sequence.session_id}_{sequence.camera_id}.mp4"
+    out_path = _Path("/artifacts") / out_relpath
+    make_overlay_video(video_path, sequence, out_path, max_seconds=max_seconds)
+    artifacts_volume.commit()
+    return out_relpath
+
+
 @app.function(image=image, gpu="T4", volumes=VOLUMES, timeout=3600)
 def run_rtmpose(video_relpath: str, tracks_relpath: str, config: dict[str, Any]) -> str:
     """Stage 2: RTMPose-l Halpe-26 top-down on YOLO crops.
@@ -212,6 +240,7 @@ __all__ = [
     "data_volume",
     "eval_external_benchmark",
     "image",
+    "make_stage1_overlay",
     "run_rtmpose",
     "run_wasb",
     "run_yolo_bytetrack",

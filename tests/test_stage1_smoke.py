@@ -115,6 +115,48 @@ def test_evaluate_trackid3x3_handles_space_separated_gt(tmp_path: Path) -> None:
     assert result["summary"]["idf1"] == pytest.approx(1.0)
 
 
+def test_make_overlay_video_smoke(synthetic_clip: Path, tmp_path: Path) -> None:
+    """make_overlay_video on the synthetic clip + empty sequence → valid MP4 with the same frame count."""
+    import cv2
+
+    from courtvision.stage1_detection.overlay import make_overlay_video
+
+    seq = TrackSequence(
+        session_id="overlay", camera_id="cam0", fps=30.0, n_frames=5, tracks=[]
+    )
+    out = tmp_path / "overlay.mp4"
+    make_overlay_video(synthetic_clip, seq, out)
+    assert out.exists() and out.stat().st_size > 0
+
+    cap = cv2.VideoCapture(str(out))
+    try:
+        n_out_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+    assert n_out_frames == 5
+
+
+def test_make_overlay_video_caps_max_seconds(synthetic_clip: Path, tmp_path: Path) -> None:
+    """max_seconds=0.1 on a 30fps 5-frame clip should produce ~3 frames."""
+    import cv2
+
+    from courtvision.stage1_detection.overlay import make_overlay_video
+
+    seq = TrackSequence(
+        session_id="overlay", camera_id="cam0", fps=30.0, n_frames=5, tracks=[]
+    )
+    out = tmp_path / "overlay_capped.mp4"
+    make_overlay_video(synthetic_clip, seq, out, max_seconds=0.1)
+
+    cap = cv2.VideoCapture(str(out))
+    try:
+        n_out_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+    # 0.1s @ 30fps = 3 frames; allow ±1 for container quirks.
+    assert 2 <= n_out_frames <= 4
+
+
 def test_evaluate_trackid3x3_round_trip_schema(tmp_path: Path) -> None:
     """Empty-tracks TrackSequence round-trips through write/read."""
     seq = TrackSequence(
