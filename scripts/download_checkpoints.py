@@ -45,22 +45,69 @@ def download_yolov8m() -> str:
     return str(target)
 
 
+def _https_pull(url: str, target: Path) -> str:
+    """Download `url` to `target` if not already present. Returns the path."""
+    import urllib.request
+
+    if target.exists():
+        print(f"{target.name} already at {target} ({target.stat().st_size:,} bytes); skipping")
+        return str(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print(f"downloading {url}")
+    urllib.request.urlretrieve(url, target)
+    print(f"wrote {target} ({target.stat().st_size:,} bytes)")
+    return str(target)
+
+
 @app.function(image=image, volumes={"/artifacts": artifacts_volume}, timeout=1200, cpu=2)
 def download_rtmpose_l_halpe26() -> str:
-    # MMPose model zoo: rtmpose-l_8xb256-420e_coco-256x192 adapted for Halpe-26.
-    raise NotImplementedError("Phase A user-test step")
+    """Pull RTMPose-l Halpe-26 (body7 pretrain, 256x192) onto /artifacts/checkpoints/."""
+    url = (
+        "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/"
+        "rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192-2abb7558_20230605.pth"
+    )
+    target = Path(_CKPT_DIR) / "rtmpose_l_halpe26.pth"
+    path = _https_pull(url, target)
+    artifacts_volume.commit()
+    return path
 
 
 @app.function(image=image, volumes={"/artifacts": artifacts_volume}, timeout=1200, cpu=2)
 def download_wasb_basketball_ckpt() -> str:
-    # WASB basketball-pretrained: github.com/nttcom/WASB-SBDT release.
-    raise NotImplementedError("Phase A user-test step")
+    """Pull WASB basketball checkpoint from upstream Drive onto /artifacts/checkpoints/.
+
+    Source: ``nttcom/WASB-SBDT/MODEL_ZOO.md`` — Google Drive file id
+    ``1nfECuSyJvPUmz3njZCdFERSQQbERt8FU``. Single-file Drive downloads are
+    more reliable than the folder case that bit us on TrackID3x3 (see
+    project feedback memory `feedback-gdown-drive-brittleness`).
+    """
+    import gdown
+
+    target = Path(_CKPT_DIR) / "wasb_basketball.pth"
+    if target.exists():
+        print(f"wasb_basketball.pth already at {target} ({target.stat().st_size:,} bytes); skipping")
+        return str(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    gdown.download(id="1nfECuSyJvPUmz3njZCdFERSQQbERt8FU", output=str(target), quiet=False)
+    if not target.exists():
+        raise RuntimeError(f"WASB checkpoint download failed: {target} missing")
+    print(f"wrote {target} ({target.stat().st_size:,} bytes)")
+    artifacts_volume.commit()
+    return str(target)
 
 
 @app.function(image=image, volumes={"/artifacts": artifacts_volume}, timeout=1200, cpu=2)
 def download_poseconv3d_k400() -> str:
-    # MMAction2 model zoo: slowonly_r50_8xb16-u48-240e_k400-keypoint.
-    raise NotImplementedError("Phase A user-test step")
+    """Pull PoseConv3D SlowOnly-R50 K400-keypoint onto /artifacts/checkpoints/."""
+    url = (
+        "https://download.openmmlab.com/mmaction/v1.0/skeleton/posec3d/"
+        "slowonly_r50_8xb32-u48-240e_k400-keypoint/"
+        "slowonly_r50_8xb32-u48-240e_k400-keypoint_20230731-7f498b55.pth"
+    )
+    target = Path(_CKPT_DIR) / "poseconv3d_k400.pth"
+    path = _https_pull(url, target)
+    artifacts_volume.commit()
+    return path
 
 
 @app.local_entrypoint()

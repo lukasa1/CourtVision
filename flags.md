@@ -39,15 +39,15 @@ Format per flag:
 
 ## F3 — Checkpoint download URLs not yet filled
 
-- **Status:** OPEN (needs user input during Phase A user-test step)
+- **Status:** RESOLVED (2026-05-26) — all 4 checkpoints on `/artifacts/checkpoints/`. Sanity-load to verify they're real weights pending Phase C/D/E first-use.
 - **Phase raised:** A
 - **Description:** `scripts/download_checkpoints.py` has stubbed functions for the four pretrained checkpoints. YOLOv8m is trivial (ultralytics auto-downloads); the other three (RTMPose-l Halpe-26, WASB basketball, PoseConv3D K400) need their model-zoo URLs or HF repo IDs filled in.
 - **Why it matters:** Phases B/C/D/E configs reference `/artifacts/checkpoints/<weight>.pt[h]`. If the file isn't on the Volume, the stages can't run.
-- **Resolution / next step:** Fill in:
-  - `yolov8m.pt` — ultralytics auto-fetch (`YOLO('yolov8m.pt')`)
-  - `rtmpose_l_halpe26.pth` — MMPose model zoo
-  - `wasb_basketball.pth` — `github.com/nttcom/WASB-SBDT` release page
-  - `poseconv3d_k400.pth` — MMAction2 model zoo (`slowonly_r50_8xb16-u48-240e_k400-keypoint`)
+- **Resolution:** All four downloaded. Actual sizes are smaller than the PRD's estimates for WASB (6 MB vs 200 MB est.) and PoseConv3D K400 (13 MB vs 250 MB est.) — possibly weights-only saves without optimizer state, or compact architecture variants. Not necessarily wrong, but worth a `torch.load` sanity check at first use in Phase C/D/E before assuming they're complete.
+  - `yolov8m.pt` (52 MB) — ultralytics auto-fetch (`YOLO('yolov8m.pt')`)
+  - `rtmpose_l_halpe26.pth` (113 MB) — MMPose `rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192`
+  - `wasb_basketball.pth` (6.1 MB) — `nttcom/WASB-SBDT` MODEL_ZOO Drive link, via gdown single-file
+  - `poseconv3d_k400.pth` (13 MB) — MMAction2 `slowonly_r50_8xb32-u48-240e_k400-keypoint`
 
 ---
 
