@@ -21,3 +21,8 @@ model:
 tracker:
   name: bytetrack
   cfg: bytetrack.yaml   # ultralytics' built-in
+  # Optional per-run knob overrides for the bytetrack YAML. The sweep
+  # harness writes to this dict. Empty → use bundled defaults verbatim.
+  # Allowed keys: track_buffer, match_thresh, new_track_thresh,
+  # track_high_thresh, track_low_thresh, fuse_score.
+  overrides: {}

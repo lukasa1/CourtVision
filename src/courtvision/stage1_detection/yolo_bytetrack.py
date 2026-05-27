@@ -15,6 +15,7 @@ Modal Volume isn't mounted.
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,41 @@ def _resolve_weights(cfg_weights: str | None) -> str:
     if cfg_weights and Path(cfg_weights).exists():
         return cfg_weights
     return "yolov8m.pt"
+
+
+def _resolve_tracker_cfg(tracker_cfg: dict[str, Any]) -> str:
+    """Return a tracker spec for ``model.track(tracker=...)``.
+
+    With no ``overrides`` key, returns the configured cfg name (e.g.
+    ``"bytetrack.yaml"``) so ultralytics uses the bundled defaults.
+    With overrides, loads the bundled bytetrack.yaml, merges the
+    overrides, and writes the result to a temp file whose path is
+    returned. Lets the sweep harness tweak ``track_buffer``,
+    ``match_thresh``, etc. without forking the ultralytics YAML.
+    """
+    overrides = tracker_cfg.get("overrides") or {}
+    cfg_name: str = tracker_cfg.get("cfg", "bytetrack.yaml")
+    if not overrides:
+        return cfg_name
+
+    import ultralytics
+    import yaml  # heavy imports deferred
+
+    default_path = Path(ultralytics.__file__).parent / "cfg" / "trackers" / cfg_name
+    if not default_path.exists():
+        raise FileNotFoundError(
+            f"cannot find ultralytics tracker config {cfg_name} at {default_path}"
+        )
+    with default_path.open() as f:
+        merged = dict(yaml.safe_load(f))
+    merged.update(overrides)
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="cv_tracker_"))
+    tmp_path = tmp_dir / "bytetrack_custom.yaml"
+    with tmp_path.open("w") as f:
+        yaml.safe_dump(merged, f)
+    _log.info("tracker overrides=%s → %s", overrides, tmp_path)
+    return str(tmp_path)
 
 
 def _video_meta(video_path: Path) -> tuple[float, int]:
@@ -88,7 +124,7 @@ def run_stage1(video_path: Path, config: dict[str, Any]) -> TrackSequence:
     # than buffering an entire clip in memory.
     results_iter = model.track(
         source=str(video_path),
-        tracker=tracker_cfg.get("cfg", "bytetrack.yaml"),
+        tracker=_resolve_tracker_cfg(tracker_cfg),
         classes=list(model_cfg.get("classes", [0])),
         conf=float(model_cfg.get("conf", 0.4)),
         iou=float(model_cfg.get("iou", 0.5)),

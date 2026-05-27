@@ -115,6 +115,30 @@ def test_evaluate_trackid3x3_handles_space_separated_gt(tmp_path: Path) -> None:
     assert result["summary"]["idf1"] == pytest.approx(1.0)
 
 
+def test_resolve_tracker_cfg_default_passes_through() -> None:
+    """No overrides → return the bundled cfg name unchanged."""
+    from courtvision.stage1_detection.yolo_bytetrack import _resolve_tracker_cfg
+
+    assert _resolve_tracker_cfg({"cfg": "bytetrack.yaml"}) == "bytetrack.yaml"
+    assert _resolve_tracker_cfg({"cfg": "bytetrack.yaml", "overrides": {}}) == "bytetrack.yaml"
+
+
+def test_resolve_tracker_cfg_writes_yaml_for_overrides() -> None:
+    """With overrides → returns a path to a temp YAML containing the merged config."""
+    import yaml
+
+    from courtvision.stage1_detection.yolo_bytetrack import _resolve_tracker_cfg
+
+    overrides = {"track_buffer": 90, "match_thresh": 0.7}
+    out = _resolve_tracker_cfg({"cfg": "bytetrack.yaml", "overrides": overrides})
+    out_path = Path(out)
+    assert out_path.exists()
+    merged = yaml.safe_load(out_path.read_text())
+    assert merged["track_buffer"] == 90
+    assert merged["match_thresh"] == pytest.approx(0.7)
+    assert merged["tracker_type"] == "bytetrack"  # default key preserved
+
+
 def test_make_overlay_video_smoke(synthetic_clip: Path, tmp_path: Path) -> None:
     """make_overlay_video on the synthetic clip + empty sequence → valid MP4 with the same frame count."""
     import cv2
