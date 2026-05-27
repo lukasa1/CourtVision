@@ -38,6 +38,8 @@ outputs/*
 !outputs/.gitkeep
 modal_workspace/*
 !modal_workspace/.gitkeep
+examples/*
+!examples/README.md
 wandb/
 
 # Model weights
