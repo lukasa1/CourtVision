@@ -111,8 +111,11 @@ def run_yolo_bytetrack(video_relpath: str, config: dict[str, Any]) -> str:
     """Stage 1: YOLOv8m + ByteTrack player detection + tracking.
 
     ``video_relpath`` is relative to the data Volume mount (``/data``).
-    Returns the relpath (under ``/artifacts``) of the written
-    ``TrackSequence`` JSON.
+    Output path defaults to
+    ``stage1/<session>/tracks_<session>_<camera>.json``; pass
+    ``config["output_relpath"]`` to override (used by the sweep harness
+    to keep per-config outputs separate). Returns the relpath
+    (under ``/artifacts``) of the written ``TrackSequence`` JSON.
     """
     from pathlib import Path as _Path
 
@@ -122,7 +125,10 @@ def run_yolo_bytetrack(video_relpath: str, config: dict[str, Any]) -> str:
     video_path = _Path("/data") / video_relpath
     result = run_stage1(video_path, config)
 
-    out_relpath = f"stage1/{result.session_id}/tracks_{result.session_id}_{result.camera_id}.json"
+    out_relpath: str = config.get(
+        "output_relpath",
+        f"stage1/{result.session_id}/tracks_{result.session_id}_{result.camera_id}.json",
+    )
     write_json(result, _Path("/artifacts") / out_relpath)
     artifacts_volume.commit()
     return out_relpath

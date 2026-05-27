@@ -115,6 +115,42 @@ def test_evaluate_trackid3x3_handles_space_separated_gt(tmp_path: Path) -> None:
     assert result["summary"]["idf1"] == pytest.approx(1.0)
 
 
+def test_sweep_set_by_path_creates_nested_keys() -> None:
+    from courtvision.stage1_detection.sweep import set_by_path
+
+    base = {"model": {"conf": 0.4}, "tracker": {"overrides": {}}}
+    out = set_by_path(base, "tracker.overrides.track_buffer", 90)
+    assert out["tracker"]["overrides"]["track_buffer"] == 90
+    # original unchanged
+    assert base["tracker"]["overrides"] == {}
+
+    out2 = set_by_path({}, "a.b.c", 1)
+    assert out2 == {"a": {"b": {"c": 1}}}
+
+
+def test_sweep_clip_name_split() -> None:
+    from courtvision.stage1_detection.sweep import clip_name_to_session_camera
+
+    assert clip_name_to_session_camera("basket_S1T1_pre") == ("basket_S1T1", "pre")
+    assert clip_name_to_session_camera("basket_S6T7_post") == ("basket_S6T7", "post")
+
+
+def test_sweep_summarise_and_pick_best() -> None:
+    from courtvision.stage1_detection.sweep import pick_best, summarise_eval_result
+
+    eval_a = {"per_sequence": {f"c{i}": {"idf1": v, "mota": 0.5} for i, v in enumerate([0.5, 0.6, 0.7])}}
+    eval_b = {"per_sequence": {f"c{i}": {"idf1": v, "mota": 0.5} for i, v in enumerate([0.4, 0.4, 0.4])}}
+
+    sa = summarise_eval_result(tag="a", knob="x", value=1, eval_result=eval_a)
+    sb = summarise_eval_result(tag="b", knob="x", value=2, eval_result=eval_b)
+
+    assert sa.idf1_mean == pytest.approx(0.6)
+    assert sa.n_clips == 3
+    assert sb.idf1_mean == pytest.approx(0.4)
+    best = pick_best([sa, sb])
+    assert best.tag == "a"
+
+
 def test_resolve_tracker_cfg_default_passes_through() -> None:
     """No overrides → return the bundled cfg name unchanged."""
     from courtvision.stage1_detection.yolo_bytetrack import _resolve_tracker_cfg

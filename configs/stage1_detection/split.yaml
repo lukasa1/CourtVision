@@ -1,0 +1,59 @@
+# Stage 1 sweep dev/test split — TrackID3x3 Indoor subset.
+#
+# Session-stratified to prevent same-day leakage: dev sessions are
+# disjoint from test sessions in player identity, lighting, and camera
+# placement. CAVEAT: S1-S3 happen to be all _pre clips and S4-S6 all
+# _post, so this split is also a pre-game/post-game split. Report any
+# results with this in mind — a tuning win on pre-game may not
+# transfer cleanly to post-game and vice versa.
+
+dev:
+  - basket_S1T1_pre
+  - basket_S1T2_pre
+  - basket_S1T3_pre
+  - basket_S1T4_pre
+  - basket_S1T5_pre
+  - basket_S1T6_pre
+  - basket_S1T7_pre
+  - basket_S2T1_pre
+  - basket_S2T2_pre
+  - basket_S2T3_pre
+  - basket_S2T4_pre
+  - basket_S2T5_pre
+  - basket_S2T6_pre
+  - basket_S2T7_pre
+  - basket_S3T1_pre
+  - basket_S3T2_pre
+  - basket_S3T3_pre
+  - basket_S3T4_pre
+  - basket_S3T5_pre
+  - basket_S3T6_pre
+  - basket_S3T7_pre
+
+test:
+  - basket_S4T1_post
+  - basket_S4T2_post
+  - basket_S4T3_post
+  - basket_S4T4_post
+  - basket_S4T5_post
+  - basket_S4T6_post
+  - basket_S4T7_post
+  - basket_S5T1_post
+  - basket_S5T2_post
+  - basket_S5T3_post
+  - basket_S5T4_post
+  - basket_S5T5_post
+  - basket_S5T6_post
+  - basket_S5T7_post
+  - basket_S6T1_post
+  - basket_S6T2_post
+  - basket_S6T3_post
+  - basket_S6T4_post
+  - basket_S6T5_post
+  - basket_S6T6_post
+  - basket_S6T7_post
+
+# Filesystem layout on the data Volume:
+video_relpath_prefix: trackid3x3/videos/Indoor/raw
+video_ext: mp4
+gt_relpath: trackid3x3/ground_truth/Indoor/MOT

@@ -1,0 +1,56 @@
+# Coordinate-descent sweep for ByteTrack tuning. Each axis is swept in
+# order; the best value found becomes the baseline for the next axis.
+# Defaults are kept as one of the values in every axis so the sweep
+# never silently moves away from the reference config.
+#
+# Total configs: 1 baseline + 4 + 3 + 4 + 3 + 2 = 17. On 21 dev clips
+# at ~10 s per clip Modal-parallel, expect ~5-10 min wall-clock.
+
+baseline:
+  model:
+    conf: 0.4
+    iou: 0.5
+    imgsz: 1280
+  tracker:
+    overrides: {}        # use ultralytics defaults
+
+# Axis sweep order. Earlier axes are tuned first, then locked.
+axes:
+  - name: track_buffer
+    knob_path: tracker.overrides.track_buffer
+    values: [30, 60, 90, 120]
+    rationale: |
+      Frames a "lost" track persists before deletion. At 20 fps the
+      30-frame default = 1.5 s; players occluded longer get a new ID
+      on reappearance.
+
+  - name: match_thresh
+    knob_path: tracker.overrides.match_thresh
+    values: [0.6, 0.7, 0.8]
+    rationale: |
+      IoU required to associate a new detection with a tracked box.
+      At 20 fps inter-frame motion is larger; lower threshold = looser
+      matching = fewer ID-swap-on-fast-motion events.
+
+  - name: new_track_thresh
+    knob_path: tracker.overrides.new_track_thresh
+    values: [0.5, 0.6, 0.7, 0.8]
+    rationale: |
+      Confidence required to spawn a brand-new track id. Raising it
+      cuts spurious "new" ids from refs / shadows / partial detections.
+      Should help close the IDR > IDP gap seen in the 3-clip baseline.
+
+  - name: yolo_conf
+    knob_path: model.conf
+    values: [0.3, 0.4, 0.5]
+    rationale: |
+      YOLO confidence threshold. Lower = catches more occluded
+      players (better continuity); higher = fewer false detections
+      (less new-track churn). Likely interacts with new_track_thresh.
+
+  - name: fuse_score
+    knob_path: tracker.overrides.fuse_score
+    values: [false, true]
+    rationale: |
+      Whether to fuse detection confidence into the IoU-based
+      association cost. Boolean — only 2 configs.
