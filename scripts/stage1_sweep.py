@@ -21,7 +21,14 @@ from typing import Any
 import yaml
 
 from courtvision.logging import get_logger
-from courtvision.modal_app import VOLUMES, app, artifacts_volume, image, run_yolo_bytetrack
+from courtvision.modal_app import (
+    VOLUMES,
+    app,
+    artifacts_volume,
+    data_volume,
+    image,
+    run_yolo_bytetrack,
+)
 from courtvision.stage1_detection.sweep import (
     RunSummary,
     build_run_config,
@@ -49,10 +56,14 @@ def eval_sweep_run(tag: str, gt_relpath: str) -> dict[str, Any]:
 
     Runs inside Modal so we don't have to pull tracks + GT locally.
     Returns the same shape as ``evaluate_trackid3x3`` so the caller can
-    pass it to ``summarise_eval_result``.
+    pass it to ``summarise_eval_result``. Reloads both volumes first
+    because Modal mounts snapshot the volume at container-start; tracks
+    just committed by another function aren't visible without reload.
     """
     from courtvision.stage1_detection.eval import evaluate_trackid3x3
 
+    artifacts_volume.reload()
+    data_volume.reload()
     tracks_dir = Path("/artifacts") / f"stage1_sweep/{tag}"
     gt_dir = Path("/data") / gt_relpath
     return evaluate_trackid3x3(tracks_dir, gt_dir)
