@@ -20,8 +20,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-import motmetrics as mm
 import numpy as np
+
+# motmetrics 1.4.0 calls np.asfarray, which NumPy 2.0 removed. Shim it
+# before importing motmetrics so the import-time path that uses it works.
+# Locally we pin numpy<2 (so hasattr is true and this is a no-op); on Modal
+# the OpenMMLab stack pulls numpy 2.x and we hit the missing attribute.
+if not hasattr(np, "asfarray"):
+    np.asfarray = lambda a, dtype=np.float64: np.asarray(a, dtype=dtype)
+
+import motmetrics as mm
 
 from courtvision.io_utils import read_json_as
 from courtvision.logging import get_logger
