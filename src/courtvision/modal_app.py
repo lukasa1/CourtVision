@@ -28,7 +28,10 @@ app = modal.App("courtvision")
 # repo are picked up without rebuilding the image.
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "git")
+    # `unar` (The Unarchiver) is the RAR backend for the `rarfile` Python
+    # library on Debian — `unrar` itself lives in non-free and isn't in the
+    # default debian:bookworm-slim apt sources.
+    .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "git", "unar")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install(
         # OpenMMLab stack — Modal Linux x86_64 has prebuilt wheels.
@@ -47,6 +50,7 @@ image = (
         "gdown>=5.2.0",
         "kaggle",
         "roboflow",
+        "rarfile",  # uses the `unar` apt binary to read MultiSubjects RAR archives
     )
     .run_commands("mkdir -p /root/.cache/mmaction2")
     .add_local_python_source("courtvision")
