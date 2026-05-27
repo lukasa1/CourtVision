@@ -21,7 +21,7 @@ from typing import Any
 import yaml
 
 from courtvision.logging import get_logger
-from courtvision.modal_app import VOLUMES, app, image, run_yolo_bytetrack
+from courtvision.modal_app import VOLUMES, app, artifacts_volume, image, run_yolo_bytetrack
 from courtvision.stage1_detection.sweep import (
     RunSummary,
     build_run_config,
@@ -80,8 +80,14 @@ def _run_one_config(
     knob: str | None = None,
     value: Any | None = None,
 ) -> RunSummary:
-    """Inference (parallel) + eval for one config across all clips."""
+    """Inference (parallel) + eval for one config across all clips.
+
+    Skips inference if all expected tracks JSONs already exist on the
+    artifacts volume — makes the sweep recoverable from partial state.
+    Must run inside Modal (uses /artifacts mount).
+    """
     inputs: list[tuple[str, dict[str, Any]]] = []
+    expected_paths: list[Path] = []
     for clip in clip_names:
         session_id, camera_id = clip_name_to_session_camera(clip)
         video_relpath = f"{video_relpath_prefix}/{clip}.{video_ext}"
@@ -93,14 +99,20 @@ def _run_one_config(
             output_relpath=output_relpath,
         )
         inputs.append((video_relpath, cfg))
+        expected_paths.append(Path("/artifacts") / output_relpath)
 
-    _log.info("[%s] inference: %d clips, knob=%s value=%s", tag, len(inputs), knob, value)
-    t0 = time.time()
-    # Modal Function.starmap returns an iterable of returns; force eval.
-    list(run_yolo_bytetrack.starmap(inputs))
-    t_inf = time.time() - t0
+    # Reload to see writes from concurrent jobs / prior sweep runs.
+    artifacts_volume.reload()
+    already_done = all(p.exists() for p in expected_paths)
+    if already_done:
+        _log.info("[%s] skipping inference (all %d tracks JSONs present)", tag, len(inputs))
+    else:
+        _log.info("[%s] inference: %d clips, knob=%s value=%s", tag, len(inputs), knob, value)
+        t0 = time.time()
+        list(run_yolo_bytetrack.starmap(inputs))
+        t_inf = time.time() - t0
+        _log.info("[%s] inference done in %.1fs", tag, t_inf)
 
-    _log.info("[%s] inference done in %.1fs; evaluating", tag, t_inf)
     eval_result = eval_sweep_run.remote(tag=tag, gt_relpath=gt_relpath)
     summary = summarise_eval_result(tag=tag, knob=knob, value=value, eval_result=eval_result)
     _log.info(
@@ -145,29 +157,26 @@ def _write_results(
 # ---------------------------------------------------------------------------
 
 
-@app.local_entrypoint()
-def run_dev_sweep(
-    split_yaml: str = str(_CONFIG_DIR / "split.yaml"),
-    sweep_yaml: str = str(_CONFIG_DIR / "sweep.yaml"),
-    output_dir: str = str(_DEFAULT_OUTPUT_DIR),
-    target_idf1: float = 0.70,
-) -> None:
-    """Coordinate-descent sweep across all axes on the dev split."""
-    split = _load_yaml(Path(split_yaml))
-    sweep = _load_yaml(Path(sweep_yaml))
+@app.function(image=image, volumes=VOLUMES, timeout=7200, cpu=2)
+def orchestrate_dev_sweep(
+    split: dict[str, Any], sweep: dict[str, Any]
+) -> dict[str, Any]:
+    """Run the full coordinate-descent sweep server-side.
+
+    All Modal-to-Modal coordination happens inside this container, so
+    the local client only blocks on one .remote() call — much more
+    robust than orchestrating many sequential .starmap()s from a
+    background bash process. Returns a dict the local entrypoint
+    serialises + plots.
+    """
     dev_clips: list[str] = list(split["dev"])
     video_prefix: str = split["video_relpath_prefix"]
     video_ext: str = split["video_ext"]
     gt_relpath: str = split["gt_relpath"]
-    out_dir = Path(output_dir)
-
-    # Start each axis from the current locked-in baseline config. After
-    # each axis we update locked_baseline with the winning knob value.
     locked_baseline = dict(sweep["baseline"])
     all_summaries: list[RunSummary] = []
     axis_summaries: dict[str, list[RunSummary]] = {}
 
-    # 1) Baseline run.
     _log.info("=== baseline ===")
     baseline_summary = _run_one_config(
         tag="baseline",
@@ -179,7 +188,6 @@ def run_dev_sweep(
     )
     all_summaries.append(baseline_summary)
 
-    # 2) Coordinate descent across axes.
     for axis in sweep["axes"]:
         axis_name: str = axis["name"]
         knob_path: str = axis["knob_path"]
@@ -204,7 +212,6 @@ def run_dev_sweep(
             all_summaries.append(summary)
         axis_summaries[axis_name] = axis_runs
 
-        # Lock in the winner before sweeping the next axis.
         best = pick_best(axis_runs)
         _log.info(
             "axis %s best: value=%s IDF1=%.4f (locking)",
@@ -214,12 +221,55 @@ def run_dev_sweep(
         )
         locked_baseline = set_by_path(locked_baseline, knob_path, best.value)
 
-    _write_results(all_summaries, axis_summaries, baseline_summary, out_dir, target_idf1)
+    return {
+        "baseline": baseline_summary.to_dict(),
+        "all_runs": [s.to_dict() for s in all_summaries],
+        "axis_runs": {
+            name: [s.to_dict() for s in runs] for name, runs in axis_summaries.items()
+        },
+        "best_config": locked_baseline,
+    }
+
+
+def _summary_from_dict(d: dict[str, Any]) -> RunSummary:
+    return RunSummary(
+        tag=d["tag"],
+        knob=d.get("knob"),
+        value=d.get("value"),
+        n_clips=int(d["n_clips"]),
+        idf1_per_clip=list(d.get("idf1_per_clip") or []),
+        mota_per_clip=list(d.get("mota_per_clip") or []),
+    )
+
+
+@app.local_entrypoint()
+def run_dev_sweep(
+    split_yaml: str = str(_CONFIG_DIR / "split.yaml"),
+    sweep_yaml: str = str(_CONFIG_DIR / "sweep.yaml"),
+    output_dir: str = str(_DEFAULT_OUTPUT_DIR),
+    target_idf1: float = 0.70,
+) -> None:
+    """Thin wrapper: load configs, dispatch server-side orchestrator, write report."""
+    split = _load_yaml(Path(split_yaml))
+    sweep = _load_yaml(Path(sweep_yaml))
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _log.info("dispatching server-side orchestrator (~30-60 min)")
+    result = orchestrate_dev_sweep.remote(split, sweep)
+
+    baseline = _summary_from_dict(result["baseline"])
+    all_summaries = [_summary_from_dict(d) for d in result["all_runs"]]
+    axis_summaries = {
+        name: [_summary_from_dict(d) for d in runs]
+        for name, runs in result["axis_runs"].items()
+    }
+    _write_results(all_summaries, axis_summaries, baseline, out_dir, target_idf1)
     print(
         json.dumps(
             {
-                "baseline_idf1": baseline_summary.idf1_mean,
-                "best_config": locked_baseline,
+                "baseline_idf1": baseline.idf1_mean,
+                "best_config": result["best_config"],
                 "output_dir": str(out_dir),
             },
             indent=2,
