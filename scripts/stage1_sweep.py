@@ -289,6 +289,25 @@ def run_dev_sweep(
     )
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=3600, cpu=2)
+def orchestrate_test_run(
+    split: dict[str, Any], base_config: dict[str, Any], tag: str
+) -> dict[str, Any]:
+    """Run one config on the test split, server-side (same robustness as
+    orchestrate_dev_sweep)."""
+    summary = _run_one_config(
+        tag=f"test_{tag}",
+        base_config=base_config,
+        clip_names=list(split["test"]),
+        video_relpath_prefix=split["video_relpath_prefix"],
+        video_ext=split["video_ext"],
+        gt_relpath=split["gt_relpath"],
+        knob="test",
+        value=tag,
+    )
+    return summary.to_dict()
+
+
 @app.local_entrypoint()
 def run_test(
     tag: str,
@@ -307,21 +326,14 @@ def run_test(
     """
     overrides = json.loads(overrides_json)
     split = _load_yaml(Path(split_yaml))
-    test_clips: list[str] = list(split["test"])
     base_config: dict[str, Any] = {
         "model": {"conf": yolo_conf, "iou": yolo_iou, "imgsz": yolo_imgsz},
         "tracker": {"overrides": overrides},
     }
-    summary = _run_one_config(
-        tag=f"test_{tag}",
-        base_config=base_config,
-        clip_names=test_clips,
-        video_relpath_prefix=split["video_relpath_prefix"],
-        video_ext=split["video_ext"],
-        gt_relpath=split["gt_relpath"],
-        knob="test",
-        value=tag,
-    )
+    _log.info("dispatching server-side test orchestrator (~5 min)")
+    summary_dict = orchestrate_test_run.remote(split, base_config, tag)
+    summary = _summary_from_dict(summary_dict)
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"test_{tag}.json").write_text(json.dumps(summary.to_dict(), indent=2))
