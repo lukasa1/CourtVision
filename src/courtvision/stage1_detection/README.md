@@ -106,10 +106,39 @@ named `basket_S2T1_pre.txt`:
 `_load_gt_frames` handles all three. Frame indices are 1-based per MOT
 convention; we normalise to 0-based on load to match `run_stage1` outputs.
 
+## Tuning + post-processing (Phase B persistence work)
+
+Off-the-shelf ByteTrack on TrackID3x3 Indoor scored ~0.56-0.71 IDF1 with
+visible ID churn. Two layers fixed it (calibrated, baked into
+`yolov8m_bytetrack.yaml`):
+
+1. **ByteTrack knob sweep** (coordinate descent, `scripts/stage1_sweep.py`)
+   — winners: `new_track_thresh=0.8`, `fuse_score=false`, `yolo conf=0.3`.
+2. **Post-processing** (`postprocess.py`, config block `postprocess:`):
+   - **stitch** — rejoin a track that ended at frame F with one starting
+     in `[F+1, F+max_gap]` within `base_radius_px * gap` (a player can
+     only drift so far in `gap` frames).
+   - **filter_non_players** — drop stationary tracks (refs/coaches:
+     `mean_speed ≈ 0`) by normalised speed, with a floor of 6 so a real
+     player is never pruned and no ceiling so subs survive.
+
+Measured IDF1 (local eval vs GT, mean per-clip ± std):
+
+| Config | dev (S1-S3, pre) | test (S4-S6, post) |
+|---|---|---|
+| off-the-shelf | 0.556 | — |
+| + knob sweep | 0.629 | 0.709 |
+| **+ post-processing** | **0.760 ± 0.146** | **0.785 ± 0.083** |
+
 ## Acceptance gate
 
-IDF1 ≥ 0.70 on TrackID3x3 (PRD §9.1). Below this, PRD escalates to a
-Phase 2 ★ fine-tune (out of scope for the 2-week sprint).
+IDF1 ≥ 0.70 on TrackID3x3 (PRD §9.1). **Met** on the held-out test split:
+0.785 ± 0.083 (95% CI [0.750, 0.821], lower bound above the gate). Dev
+split (harder pre-game footage) also clears it at 0.760. Below this, PRD
+escalates to a Phase 2 ★ fine-tune (out of scope for the sprint).
+
+Deferred persistence layers (court mask, team-colour, cross-camera
+reconciliation, jersey OCR) are logged in `flags.md` F15.
 
 ## Tests
 
