@@ -2,6 +2,11 @@
 
 poses_dir: null
 gt_dir: null
-subset: trackid3x3   # or "coco17" for MultiSubjects
+output: outputs/stage2/eval_stage2.json
+subset: trackid3x3   # "trackid3x3" (primary, wrist PCK) or "coco17" (MultiSubjects)
 pck_threshold: 0.05
 target_wrist_pck: 0.85
+# MultiSubjects only: clip resolution to lift normalised [0,1] GT into the
+# prediction's pixel space (ignored for trackid3x3). See eval.evaluate_multisubjects / F18.
+frame_w: 1.0
+frame_h: 1.0
