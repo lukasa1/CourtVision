@@ -43,6 +43,22 @@ _HALPE_WRIST_RL = (10, 9)  # (right, left)
 # TrackID3x3 10-keypoint GT wrist indices (F5/F18).
 _GT_WRIST_RL = (5, 6)  # (right, left)
 
+# TrackID3x3 GT 10-keypoint index -> Halpe-26 index, grouped by landmark type
+# (F5 schema: 0 head/nose, 1 R-shoulder, 2 L-shoulder, 3 R-elbow, 4 L-elbow,
+# 5 R-wrist, 6 L-wrist, 7 hip-centre, 8 R-ankle, 9 L-ankle; Halpe-26 COCO order:
+# 0 nose, 5/6 L/R shoulder, 7/8 L/R elbow, 9/10 L/R wrist, 15/16 L/R ankle,
+# 19 hip-centre). Used for the per-landmark diagnostic (wrist remains the gate).
+# L/R-paired groups are scored side-agnostically (TrackID3x3 L/R labels are
+# flipped vs RTMPose — F18); central groups (head, hip) compare directly.
+_GT_LANDMARK_GROUPS: dict[str, list[tuple[int, int]]] = {
+    "head": [(0, 0)],
+    "shoulder": [(1, 6), (2, 5)],
+    "elbow": [(3, 8), (4, 7)],
+    "wrist": [(5, 10), (6, 9)],
+    "hip": [(7, 19)],
+    "ankle": [(8, 16), (9, 15)],
+}
+
 Point = tuple[float, float]
 
 
@@ -78,11 +94,7 @@ def _match_predictions_to_gt(
         return []
     cost = [[_euclid(pc, gc) for gc in gt_centroids] for pc in pred_centroids]
     rows, cols = linear_sum_assignment(cost)
-    return [
-        (int(r), int(c))
-        for r, c in zip(rows, cols, strict=True)
-        if cost[r][c] <= max_dist
-    ]
+    return [(int(r), int(c)) for r, c in zip(rows, cols, strict=True) if cost[r][c] <= max_dist]
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +119,25 @@ def _wrist_distances(pred: Pose2D, gt_kpts: list[Point]) -> tuple[list[float], l
     return sided, agnostic
 
 
+def _group_distances(
+    pred: Pose2D, gt_kpts: list[Point], group: list[tuple[int, int]]
+) -> list[float]:
+    """Per-keypoint distances for one landmark group (used by the diagnostic).
+
+    A 2-entry L/R group is scored side-agnostically (cheaper of the 2x2
+    assignment); a 1-entry central group compares directly.
+    """
+    g = [gt_kpts[gi] for gi, _ in group]
+    p = [(pred.keypoints[hi].x, pred.keypoints[hi].y) for _, hi in group]
+    if len(group) == 1:
+        return [_euclid(g[0], p[0])]
+    opt_a = _euclid(g[0], p[0]) + _euclid(g[1], p[1])
+    opt_b = _euclid(g[0], p[1]) + _euclid(g[1], p[0])
+    if opt_a <= opt_b:
+        return [_euclid(g[0], p[0]), _euclid(g[1], p[1])]
+    return [_euclid(g[0], p[1]), _euclid(g[1], p[0])]
+
+
 # ---------------------------------------------------------------------------
 # TrackID3x3 — primary wrist-PCK gate
 # ---------------------------------------------------------------------------
@@ -122,15 +153,14 @@ def _load_trackid3x3_pose_gt(path: Path) -> dict[int, dict[str, list[Point]]]:
     for frame_key, players in raw["annotations"].items():
         idx = int(frame_key.split("_", 1)[1])
         out[idx] = {
-            colour: [(float(p[0]), float(p[1])) for p in kpts]
-            for colour, kpts in players.items()
+            colour: [(float(p[0]), float(p[1])) for p in kpts] for colour, kpts in players.items()
         }
     return out
 
 
-def _pair_files(pred_dir: Path, gt_dir: Path, *, pred_prefix: str, gt_ext: str) -> list[
-    tuple[Path, Path, str]
-]:
+def _pair_files(
+    pred_dir: Path, gt_dir: Path, *, pred_prefix: str, gt_ext: str
+) -> list[tuple[Path, Path, str]]:
     """Match ``{pred_prefix}<key>.json`` predictions to ``<key>{gt_ext}`` GT.
 
     Mirrors Stage 1's matcher: strip the prefix, try ``<key>`` then
@@ -153,13 +183,21 @@ def _pair_files(pred_dir: Path, gt_dir: Path, *, pred_prefix: str, gt_ext: str) 
 
 def _score_trackid3x3_clip(
     seq: Pose2DSequence, gt: dict[int, dict[str, list[Point]]], *, pck_threshold: float
-) -> dict[str, float]:
-    """Wrist PCK for one clip. Returns correct/total counts + derived rates."""
+) -> dict[str, Any]:
+    """PCK for one clip: wrist gate + per-landmark + all-keypoint diagnostic.
+
+    Returns per-clip rates plus private ``_group_correct``/``_group_total``/
+    ``_wrist_sided_correct`` raw counts so the caller can micro-average across
+    clips. ``wrist`` is scored exactly as the gate (side-agnostic 2x2); the
+    other landmark groups are the diagnostic.
+    """
     pred_by_frame: dict[int, list[Pose2D]] = defaultdict(list)
     for p in seq.poses:
         pred_by_frame[p.frame_idx].append(p)
 
-    correct_agn = correct_sided = total = 0
+    g_correct = {g: 0 for g in _GT_LANDMARK_GROUPS}
+    g_total = {g: 0 for g in _GT_LANDMARK_GROUPS}
+    wrist_sided_correct = 0
     matched_players = 0
     for frame_idx, gt_players in gt.items():
         preds = pred_by_frame.get(frame_idx)
@@ -175,36 +213,54 @@ def _score_trackid3x3_clip(
         # accept any match (inf).
         court_spread = _bbox_diag(gt_centroids) if len(gt_centroids) > 1 else 0.0
         max_dist = 0.5 * court_spread if court_spread > 0 else float("inf")
-        for pi, gi in _match_predictions_to_gt(
-            pred_centroids, gt_centroids, max_dist=max_dist
-        ):
+        for pi, gi in _match_predictions_to_gt(pred_centroids, gt_centroids, max_dist=max_dist):
             gt_kpts = gt_items[gi][1]
             diag = _bbox_diag(gt_kpts)
             if diag <= 0:
                 continue
             thr = pck_threshold * diag
-            sided, agnostic = _wrist_distances(preds[pi], gt_kpts)
-            correct_sided += sum(d <= thr for d in sided)
-            correct_agn += sum(d <= thr for d in agnostic)
-            total += 2
+            for gname, group in _GT_LANDMARK_GROUPS.items():
+                if gname == "wrist":
+                    sided, agnostic = _wrist_distances(preds[pi], gt_kpts)
+                    g_correct["wrist"] += sum(d <= thr for d in agnostic)
+                    g_total["wrist"] += 2
+                    wrist_sided_correct += sum(d <= thr for d in sided)
+                else:
+                    dists = _group_distances(preds[pi], gt_kpts, group)
+                    g_correct[gname] += sum(d <= thr for d in dists)
+                    g_total[gname] += len(dists)
             matched_players += 1
 
+    wrist_total = g_total["wrist"]
+    all_correct = sum(g_correct.values())
+    all_total = sum(g_total.values())
+    per_landmark = {
+        g: (g_correct[g] / g_total[g] if g_total[g] else 0.0) for g in _GT_LANDMARK_GROUPS
+    }
     return {
-        "wrist_pck": (correct_agn / total) if total else 0.0,
-        "wrist_pck_sided": (correct_sided / total) if total else 0.0,
-        "n_wrist_keypoints": float(total),
+        "wrist_pck": per_landmark["wrist"],
+        "wrist_pck_sided": (wrist_sided_correct / wrist_total) if wrist_total else 0.0,
+        "all_keypoint_pck": (all_correct / all_total) if all_total else 0.0,
+        "per_landmark": per_landmark,
+        "n_wrist_keypoints": float(wrist_total),
         "n_matched_players": float(matched_players),
+        "_group_correct": g_correct,
+        "_group_total": g_total,
+        "_wrist_sided_correct": wrist_sided_correct,
     }
 
 
 def evaluate_trackid3x3(
     poses_dir: Path, gt_dir: Path, *, pck_threshold: float = 0.05
 ) -> dict[str, Any]:
-    """Side-agnostic wrist PCK@``pck_threshold`` on TrackID3x3.
+    """Wrist PCK@``pck_threshold`` (the gate) + per-landmark / all-keypoint diagnostic.
 
     Returns ``{"summary": {...}, "per_sequence": {...}, "n_sequences": int}``.
-    ``summary`` micro-averages over all matched wrists (sum correct / sum
-    total) so clips with more annotated frames weigh proportionally.
+    ``summary`` micro-averages over all matched keypoints (sum correct / sum
+    total) so clips with more annotated frames weigh proportionally. The wrist
+    group is the gate; the other landmark groups + ``all_keypoint_pck`` are a
+    diagnostic to see whether wrists are uniquely weak or just tracking the
+    overall (model-derived) GT disagreement (F18).
     """
     poses_dir = Path(poses_dir)
     gt_dir = Path(gt_dir)
@@ -212,21 +268,31 @@ def evaluate_trackid3x3(
     if not pairs:
         raise FileNotFoundError(f"no matchable (pred, gt) pairs under {poses_dir} vs {gt_dir}")
 
-    per_sequence: dict[str, dict[str, float]] = {}
-    tot_correct = tot_correct_sided = tot = 0.0
+    per_sequence: dict[str, dict[str, Any]] = {}
+    agg_correct = {g: 0 for g in _GT_LANDMARK_GROUPS}
+    agg_total = {g: 0 for g in _GT_LANDMARK_GROUPS}
+    agg_wrist_sided = 0
     for pred_path, gt_path, key in pairs:
         seq = read_json_as(Pose2DSequence, pred_path)
         gt = _load_trackid3x3_pose_gt(gt_path)
         s = _score_trackid3x3_clip(seq, gt, pck_threshold=pck_threshold)
-        per_sequence[key] = s
-        tot_correct += s["wrist_pck"] * s["n_wrist_keypoints"]
-        tot_correct_sided += s["wrist_pck_sided"] * s["n_wrist_keypoints"]
-        tot += s["n_wrist_keypoints"]
+        per_sequence[key] = {k: v for k, v in s.items() if not k.startswith("_")}
+        for g in _GT_LANDMARK_GROUPS:
+            agg_correct[g] += s["_group_correct"][g]
+            agg_total[g] += s["_group_total"][g]
+        agg_wrist_sided += s["_wrist_sided_correct"]
 
+    wrist_total = agg_total["wrist"]
+    all_correct = sum(agg_correct.values())
+    all_total = sum(agg_total.values())
     summary = {
-        "wrist_pck": (tot_correct / tot) if tot else 0.0,
-        "wrist_pck_sided": (tot_correct_sided / tot) if tot else 0.0,
-        "n_wrist_keypoints": tot,
+        "wrist_pck": (agg_correct["wrist"] / wrist_total) if wrist_total else 0.0,
+        "wrist_pck_sided": (agg_wrist_sided / wrist_total) if wrist_total else 0.0,
+        "all_keypoint_pck": (all_correct / all_total) if all_total else 0.0,
+        "per_landmark": {
+            g: (agg_correct[g] / agg_total[g] if agg_total[g] else 0.0) for g in _GT_LANDMARK_GROUPS
+        },
+        "n_wrist_keypoints": float(wrist_total),
         "pck_threshold": pck_threshold,
     }
     return {"summary": summary, "per_sequence": per_sequence, "n_sequences": len(pairs)}

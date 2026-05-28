@@ -1,4 +1,4 @@
-# Stage 2 — RTMPose-l Halpe-26. PRD §9.2.
+# Stage 2 — RTMPose-l Halpe-26 via rtmlib (ONNX). PRD §9.2 / decisions.md Decision 2.
 
 input: null    # path to a video clip
 tracks: null   # path to Stage 1 TrackSequence JSON
@@ -6,16 +6,11 @@ output: null   # path to write the Pose2DSequence JSON
 
 model:
   name: rtmpose-l
-  # Model config is resolved at runtime from the installed mmpose package's
-  # bundled `.mim/configs` tree (must be the *halpe26* 26-kpt head, NOT the
-  # coco-256x192 17-kpt config). Set cfg_path to override if auto-resolution
-  # picks the wrong file on a given mmpose release. See rtmpose_inference._resolve_model_config.
-  cfg_path: null
-  weights: /artifacts/checkpoints/rtmpose_l_halpe26.pth
+  # ONNX export of the RTMPose-l body7-halpe26 256x192 checkpoint (same weights
+  # as the specced .pth, hash 2abb7558). rtmlib downloads it on first use.
+  onnx_model: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192-2abb7558_20230605.zip
   keypoint_format: halpe26
   num_keypoints: 26
-  device: cuda:0
-
-inference:
   input_size: [192, 256]   # W, H per RTMPose convention
-  batch_size: 32
+  backend: onnxruntime
+  device: cpu              # CPU avoids the onnxruntime-gpu/CUDA matching that we just escaped

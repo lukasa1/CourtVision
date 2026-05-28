@@ -12,9 +12,9 @@ from courtvision.stage2_pose.eval import evaluate_trackid3x3, evaluate_multisubj
 ```
 
 - **`run_stage2(tracks, video_path, config) -> Pose2DSequence`** — RTMPose-l
-  top-down inference. For each frame with tracks, runs `inference_topdown` on
-  that frame's bboxes (one instance per track) and records a 26-keypoint
-  Halpe pose per track. `mmpose` is imported lazily (Modal-only — see F1/F17).
+  top-down inference via **rtmlib (ONNX)**. For each frame with tracks, runs the
+  pose model on that frame's bboxes (one instance per track) and records a
+  26-keypoint Halpe pose per track. `rtmlib` is imported lazily.
 - **`halpe26_to_coco17(pose) -> Pose2D`** — the COCO-17 subset (first 17 Halpe
   indices) for the Stage 5 classifier; the geometric pipeline keeps full Halpe-26.
 - **`evaluate_trackid3x3(poses_dir, gt_dir) -> dict`** — wrist PCK@0.05 (primary gate).
@@ -24,25 +24,29 @@ from courtvision.stage2_pose.eval import evaluate_trackid3x3, evaluate_multisubj
 
 | Knob | Value |
 |---|---|
-| Model | RTMPose-l, Halpe-26 head (`rtmpose-l_simcc-body7…halpe26`) |
+| Model | RTMPose-l, Halpe-26 (`rtmpose-l_simcc-body7…halpe26`, ONNX export of the `2abb7558` checkpoint) |
+| Engine | **rtmlib / onnxruntime** (NOT MMPose — see below) |
 | Mode | top-down on Stage 1 bboxes |
 | Keypoints | 26 (Halpe-26); COCO-17 subset for the classifier |
-| Checkpoint | `/artifacts/checkpoints/rtmpose_l_halpe26.pth` |
 | Input size | 192×256 (W×H) |
 
-The model **config** is resolved at runtime from the installed mmpose's
-`.mim/configs` tree — it must be the *halpe26* (26-kpt) config, not the
-coco-256x192 (17-kpt) one. Override with `config['model']['cfg_path']` if a
-given mmpose release names it differently. See `_resolve_model_config`.
+## Engine: rtmlib, not MMPose (PRD §5.2 deviation)
+
+Stage 2 keeps the specced *model* (RTMPose-l Halpe-26) but runs it through
+**rtmlib / ONNX**, not the MMPose PyTorch stack. The OpenMMLab stack
+(mmcv/mmpose/mmdet) is unusable on the Modal image's **torch 2.12 + CUDA 13**
+(mmcv is unmaintained against it — `mmcv._ext` won't build; see `flags.md` F20).
+rtmlib depends only on `numpy`/`opencv`/`onnxruntime`, so it sidesteps the whole
+torch/CUDA/numpy version web. Full rationale: `docs/decisions.md` Decision 2.
 
 ## Where it runs
 
-Stage 2 inference is **Modal-only** — the OpenMMLab stack doesn't build on
-macOS arm64 (F1). Local dev runs the pure-Python parts (eval, conversion,
-tests); inference + the schema-valid dry run happen on Modal T4 (F17).
+Inference runs on the lightweight `rtmpose_image` (rtmlib + onnxruntime, CPU —
+no torch/mmcv), which builds in ~1 min. It can also run locally (rtmlib supports
+CPU/MPS), so the laptop is no longer blocked from a real dry run.
 
 ```bash
-# Inference (Modal T4):
+# Inference (Modal CPU):
 uv run modal run scripts/stage2_run.py::run \
     --video-relpath trackid3x3/videos/Indoor/raw/<clip>.mp4 \
     --tracks-relpath stage1/<session>/tracks_<session>_<cam>.json

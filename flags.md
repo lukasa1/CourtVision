@@ -39,14 +39,14 @@ Format per flag:
 
 ## F3 — Checkpoint download URLs not yet filled
 
-- **Status:** RESOLVED (2026-05-26) — all 4 checkpoints on `/artifacts/checkpoints/`. Sanity-load to verify they're real weights pending Phase C/D/E first-use.
+- **Status:** RESOLVED (2026-05-26) — all 4 checkpoints on `/artifacts/checkpoints/`. WASB sanity-load **confirmed 2026-05-27** (Phase D, `modal_app.verify_wasb_checkpoint`); RTMPose-l / PoseConv3D sanity-loads still pending Phase C/E first-use.
 - **Phase raised:** A
 - **Description:** `scripts/download_checkpoints.py` has stubbed functions for the four pretrained checkpoints. YOLOv8m is trivial (ultralytics auto-downloads); the other three (RTMPose-l Halpe-26, WASB basketball, PoseConv3D K400) need their model-zoo URLs or HF repo IDs filled in.
 - **Why it matters:** Phases B/C/D/E configs reference `/artifacts/checkpoints/<weight>.pt[h]`. If the file isn't on the Volume, the stages can't run.
 - **Resolution:** All four downloaded. Actual sizes are smaller than the PRD's estimates for WASB (6 MB vs 200 MB est.) and PoseConv3D K400 (13 MB vs 250 MB est.) — possibly weights-only saves without optimizer state, or compact architecture variants. Not necessarily wrong, but worth a `torch.load` sanity check at first use in Phase C/D/E before assuming they're complete.
   - `yolov8m.pt` (52 MB) — ultralytics auto-fetch (`YOLO('yolov8m.pt')`)
   - `rtmpose_l_halpe26.pth` (113 MB) — MMPose `rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192`
-  - `wasb_basketball.pth` (6.1 MB) — `nttcom/WASB-SBDT` MODEL_ZOO Drive link, via gdown single-file
+  - `wasb_basketball.pth` (6.1 MB) — `nttcom/WASB-SBDT` MODEL_ZOO Drive link, via gdown single-file. **Sanity-load passed (2026-05-27):** loads into WASB's HRNet with 0 missing / 0 unexpected keys; 1,481,427 params (~5.9 MB fp32 ≈ the 6.1 MB file — so it's the *complete* model, not a truncated download). WASB's HRNet is just a deliberately tiny heatmap net; the PRD's 200 MB estimate was simply wrong. Confirmed the gdown id maps to the *basketball* WASB row of MODEL_ZOO, not another sport.
   - `poseconv3d_k400.pth` (13 MB) — MMAction2 `slowonly_r50_8xb32-u48-240e_k400-keypoint`
 
 ---
@@ -121,13 +121,13 @@ Format per flag:
 
 ## F9 — WASB + Pose2Sim removed from shared Modal image
 
-- **Status:** OPEN (deferred to Phase D / Stage 4)
+- **Status:** WASB half **RESOLVED (2026-05-27, Phase D)**; Pose2Sim half still OPEN (deferred to Stage 4).
 - **Phase raised:** A (caught during user test of `download_multisubjects`)
 - **Description:** The shared image previously did `pip_install("git+https://github.com/nttcom/WASB-SBDT.git", "git+https://github.com/perfanalytics/pose2sim.git")`. WASB-SBDT has neither `setup.py` nor `pyproject.toml` — it's research code meant to be cloned and used in-tree. The pip install failed, breaking the image build for every function on the app (including downloads that don't need WASB).
 - **Why it matters:** Phase A `modal run` calls must succeed end-to-end without depending on libraries that are weeks away.
-- **Resolution / next step:** Removed both git-installs from the shared image. Phase D (Stage 3) and Stage 4 will declare per-function images:
-  - **WASB (Stage 3):** `Image.debian_slim(...).run_commands("git clone https://github.com/nttcom/WASB-SBDT.git /opt/wasb").env({"PYTHONPATH": "/opt/wasb:$PYTHONPATH"})` plus WASB's own runtime deps from their `environment.yml`.
-  - **Pose2Sim (Stage 4):** `pose2sim` is on PyPI; use `.pip_install("pose2sim")` in a per-function image.
+- **Resolution / next step:** Removed both git-installs from the shared image. Phase D (Stage 3) and Stage 4 declare per-function images:
+  - **WASB (Stage 3): DONE.** `modal_app.wasb_image` = `debian_slim(py3.11).apt_install(ffmpeg,libgl1,libglib2.0-0,git).pip_install(...).run_commands("git clone --depth 1 …/WASB-SBDT.git /opt/wasb").add_local_python_source("courtvision")`. `run_wasb` / `verify_wasb_checkpoint` use it. Two deliberate version choices vs WASB's Dockerfile: `numpy<2` (their online tracker uses `np.Inf`, gone in NumPy 2.0) and torch 2.1.2 (no CUDA-matching 1.11 wheels on modern Modal; HRNet is plain nn modules, and torch<2.6 keeps `torch.load` `weights_only=False` so the `.pth.tar` loads). Deps needed beyond torch: opencv, omegaconf, hydra-core, tqdm, pandas, pillow, matplotlib, pyyaml (the `dataloaders`/`detectors`/`utils` import chain transitively needs pandas+matplotlib even for inference), plus pydantic+rich for `courtvision` schemas/logging. No sklearn/skimage/timm/einops (grep-confirmed unused on the inference path). WASB imported off `sys.path` (`/opt/wasb/src`) rather than `PYTHONPATH` env — it uses bare top-level imports like `from models import …`. First build ~80 s (cached after).
+  - **Pose2Sim (Stage 4):** `pose2sim` is on PyPI; use `.pip_install("pose2sim")` in a per-function image. Still TODO.
 
 ---
 
@@ -199,3 +199,104 @@ Format per flag:
   - **D2 — train a player-specific Re-ID model** on own footage. 1-2 weeks. Out of scope.
 - **Why it matters:** Track stability *during shot-release windows* drives Stage 5 (classifier window integrity) and Stage 7 (closest-defender wrist-to-trajectory — the headline metric). Off-ball stability matters less. The downstream-impact analysis (this conversation) concluded the real fix for the contest metric is C2 cross-camera, with A1/B1/C1 as cheap single-camera robustness now.
 - **Resolution / next step:** **DONE (2026-05-27).** A1 (`filter_non_players`), B1 (`stitch_tracks`), and C1-simplified (distance gate) implemented in `stage1_detection/postprocess.py`, calibrated, and baked into `yolov8m_bytetrack.yaml`. Re-eval: dev IDF1 0.760 ± 0.146, test 0.785 ± 0.083 (95% CI lower bound 0.750 > 0.70 gate). Phase B closed with detection/tracking deemed good-enough by the user. **B2 (BoT-SORT Re-ID) deferred** — not pursued; calibrated ByteTrack + post-processing clears the gate, and B2 is a PRD §5.2 deviation we chose not to take. The remaining deferred options (A2 court mask, A3 team-colour, B2 BoT-SORT, C2 cross-camera, D1 jersey OCR, D2 custom Re-ID) are mirrored in auto-memory `project_stage1_deferred_backlog.md` for cross-session recall. Revisit if Stage 5 window integrity or the Stage 7 contest metric needs more track stability — C2 (cross-camera, weeks 3-4) is the highest-leverage next lever.
+
+---
+
+## F16 — Off-the-shelf WASB-basketball has partial, clip-dependent ball coverage on TrackID3x3
+
+- **Status:** OPEN / informational (flag for the week 3-4 Phase-2 ★ decision, per PRD §10 Phase D — "note it but do NOT pivot in this sprint").
+- **Phase raised:** D (during the Stage 3 qualitative validation runs).
+- **Description:** Ran the off-the-shelf WASB-basketball checkpoint on 3 Indoor TrackID3x3 clips at the default `conf_threshold=0.5`. Fraction of frames with *any* ball detection: `basket_S1T1_pre` 36/168 (21%), `basket_S4T6_post` 18/224 (8%), `basket_S4T4_post` 5/236 (2%). Where it does fire, the track is spatially coherent and smooth (e.g. S1T1 frames 12-125, ball drifting right ~6-10 px/frame, all in-bounds) — i.e. detections are *correct*, just *sparse*. Lowering the threshold 0.5→0.3 on the worst clip (S4T4) changed detections only 5→6, so the gap is **not** a threshold artifact — the model produces no heatmap peak for the ball in most frames of those clips (occlusion in post-shot scrambles + domain gap: WASB-basketball was trained on wide-angle NBA broadcast/SAM, TrackID3x3 is a closer 3x3 half-court rig).
+- **Why it matters:** Stage 7's headline metric (3D defender-wrist distance to ball trajectory) needs the ball tracked *through the release window*. Sparse 2D coverage per camera may still triangulate acceptably across 3 synchronized views (a frame the ball is missed in one camera may be caught in another), but persistent gaps would hurt. This is the trigger condition for PRD Decision 3's Phase-2 ★ fallback (custom WASB fine-tuning).
+- **Important caveat:** These percentages are **frames-with-a-detection, NOT recall** — TrackID3x3 has no ball ground truth (its annotations are player MOT boxes + player pose keypoints, not the ball). The PRD's actual Stage 3 quantitative gate is **mAP@0.5 ≥ 0.85 on DeepSportradar Basketball Instants** (ball GT, literature-comparable), which has not been run yet. Don't read these density numbers as accuracy.
+- **Resolution / next step:** (a) Run the DeepSportradar mAP eval (PRD §9.3, `stage3_eval.py` — still a Phase-A stub) for the real quantitative number before judging the checkpoint. (b) For the contest metric specifically, evaluate ball coverage *after multi-view triangulation* (Stage 4, own footage, weeks 3-4) rather than per-camera. (c) If coverage is still inadequate then, trigger Phase-2 ★ custom WASB training. Decision deferred to weeks 3-4 per PRD.
+
+---
+
+## F17 — Stage 2 (RTMPose) inference is Modal-only; PRD "local dry run" check substituted
+
+- **Status:** OPEN (intentional; PRD-aligned, follows from F1)
+- **Phase raised:** C
+- **Description:** PRD §10 Phase C lists an automated acceptance check: *"Local dry run on a single mirror clip + its Phase B tracks produces a schema-valid `Pose2DSequence`."* But Stage 2 inference needs the OpenMMLab stack (`mmpose`/`mmcv`), which is Modal-only and not installed on the laptop (F1 — mmcv has no macOS arm64 wheel). So the actual RTMPose dry run cannot run locally, unlike Stage 1 (ultralytics installs locally).
+- **Why it matters:** The Phase C local automated-check set therefore *cannot* include a real inference dry run. If a reviewer expects the PRD's literal local check, they'll be confused when it's absent.
+- **Resolution:** Local automated checks for Phase C are: `pytest tests/test_stage2_smoke.py` (pure-Python eval + Halpe→COCO conversion + GT parser, validated against the real example GT), `scripts/stage2_run.py --help`, `ruff`, `mypy` — all green. The schema-valid `Pose2DSequence` dry run is **substituted by a Modal T4 run** in the Phase C user-test step (`modal run scripts/stage2_run.py::run`). `rtmpose_inference.py` is written so the module imports cleanly without `mmpose` (the import is lazy inside `run_stage2`), so the laptop-side tooling stays green. Same pattern will apply to Stage 5 (Phase E).
+
+---
+
+## F18 — TrackID3x3 pose GT: structure, provenance, and the side-agnostic wrist-PCK decision
+
+- **Status:** RESOLVED (2026-05-28) — parser + eval implemented and tested against the real example GT.
+- **Phase raised:** C
+- **Description:** Inspected the real TrackID3x3 Indoor pose GT (`examples/trackid3x3/ground_truth/Indoor/pose/basket_S4T4_post.json`, S4T6) to pin the eval. Findings:
+  - **Structure:** `{"video": {file_name, resolution:[1280,720], frame_rate, total_frames}, "annotations": {"frame_<i>": {"<Colour>_Jersey": [[x, y], ...×10]}}}`. Keypoints are `[x, y]` only — **no per-keypoint score/visibility**. Frame keys are 0-based (match our predictions directly — unlike the 1-based MOT bbox GT used in Stage 1).
+  - **Density:** for these Indoor clips, *not* sparse — all 6 players, every frame, 10 keypoints each (S4T4: 235 frames × 6, S4T6: 223 × 6). The README's "for some frames only" caveat may apply to other subsets; the Indoor eval clips are dense.
+  - **Schema (confirms F5) by kinematic check:** R-wrist(5) sits nearer R-elbow(3) than L-elbow(4) in 86–90% of skeletons; L-wrist(6) nearer L-elbow(4) ~80%. The high-but-not-100% rate (hands meeting at the body) means **L/R is ambiguous ~10–20% of the time** even kinematically.
+  - **Provenance:** coordinates carry heavy subpixel float precision (e.g. `1019.4202499389648`) → these are the dataset's **baseline pose-estimator output, not hand-labelled truth**. So wrist PCK on TrackID3x3 is *in-domain agreement with their baseline*, not accuracy vs ground truth.
+- **Why it matters:** (1) The keying is **jersey-colour, not track-id** → the eval spatially matches predicted players to GT players per frame (Hungarian on keypoint centroids, capped at half the court spread). (2) The L/R ambiguity makes a same-side wrist PCK fragile, so the headline metric uses a **side-agnostic 2×2 min-cost wrist assignment** — it scores wrist *localisation* (what the Stage 7 contest metric needs) independent of the L/R label; a strict same-side number (`wrist_pck_sided`) is reported alongside. (3) Because GT is model-derived, the 0.85 gate is an agreement bar; qualitative overlay review (Phase C user-test step 5/6) matters more than usual.
+- **Resolution / next step:** Implemented in `stage2_pose/eval.py` (`_load_trackid3x3_pose_gt`, `_score_trackid3x3_clip`, side-agnostic `_wrist_distances`), PCK normalised by the GT-skeleton bbox diagonal (GT carries no person bbox). Verified end-to-end by `test_evaluate_trackid3x3_on_real_gt` (perfect synthetic prediction from the real GT → wrist_pck ≈ 1.0). MultiSubjects secondary eval (`evaluate_multisubjects`) assumes BlazePose CSV coords are MediaPipe-normalised [0,1] — **unconfirmed** because all three local sample CSVs are empty (headers only); confirm against a populated CSV on the data Volume on the first Modal MS-eval run.
+
+---
+
+## F19 — Ball detector: adding a YOLOv8 appearance detector alongside WASB (PRD §5.2 deviation)
+
+- **Status:** **DEFERRED (2026-05-28).** After qualitative review of the trained-YOLO overlays, off-the-shelf *and* trained ball detection are **not good enough on TrackID3x3** (frequent false positives on players' heads — see Outcome). Ball detection is **parked for the sprint**; the pipeline pivots to **pose-first** (shot classification from pose, optional pose-derived contest metric). Revisit the ball on own iPhone footage (closer cameras → larger ball) + multi-view fusion. All ball code/checkpoints kept in place for that revisit.
+- **Phase raised:** D (during Stage 3 qualitative validation).
+- **Description:** PRD §5.2 locks **WASB** as the ball detector. We are deviating to an **appearance-based YOLOv8 ball detector** for Stage 3.
+- **Why (diagnosed, not guessed):** WASB ran end-to-end correctly (harness validated on `basket_S1T1_pre`: median heatmap peak 0.126, p90 0.74, clean smooth track), but coverage is *clip-dependent and often near-zero*. Heatmap diagnostic (`modal_app.diagnose_wasb` / `wasb_inference.diagnose_stage3`) on `basket_S4T4_post`: median peak **0.030**, p90 **0.059** — i.e. the heatmap sits at the noise floor (~0.012) across ~90% of frames, so the model is **blind to the ball there regardless of threshold** (lowering 0.5→0.3→0.05 changed detections 5→6→30, all near-noise argmaxes). Root cause is structural, threefold: (1) **WASB is motion-based** — 3-frame input tuned for fast balls (tennis/badminton/volleyball); a held/dribbled/post-shot basketball barely moves frame-to-frame → flat heatmap; (2) **tiny ball** — TrackID3x3 frames the whole half-court, ball ≈6 px after WASB's mandatory 512×288 downscale; (3) **appearance/domain gap** — WASB-basketball trained on wide-angle NBA broadcast. None of these are fixable by knob-tuning. An appearance detector fires on a *visible* ball whether or not it moves, which is the actual requirement ("detect the ball in most frames, even if not perfectly").
+- **Plan:** (a) reuse Stage 1's YOLO stack; first sanity-check **stock yolov8m COCO "sports ball" (class 32)** at imgsz=1280 on TrackID3x3 (zero training); (b) train a single-class **`ball`** YOLOv8 on the Roboflow `basketball-w2xcw` data already on the Volume (`category_id 1`; train/valid/test COCO splits) → `/artifacts/checkpoints/yolo_ball.pt`; (c) wrap as `stage3_ball/yolo_ball.py::run_stage3_yolo` emitting the **same `Ball2DSequence`** schema so overlays/triangulation are unchanged; add `modal_app.run_yolo_ball`. WASB code is kept (not deleted) — it may still help as a trajectory smoother on fast-ball frames, and the contest metric ultimately runs on own footage (weeks 3-4) where camera distance is controllable.
+- **Outcome (2026-05-28) — full postmortem of the ball-detection effort:**
+
+  *Everything tried, in order, on the two Indoor clips (`basket_S4T4_post`, 236 frames, ball mostly held/post-shot; `basket_S1T1_pre`, 168 frames, open play). All counts are "frames with **a** detection," NOT validated recall — TrackID3x3 has **no ball ground truth**.*
+
+  | Detector / config | S4T4 | S1T1 |
+  |---|---|---|
+  | WASB (motion-based, off-the-shelf) | 5/236 (2%) | 36/168 (21%) |
+  | stock COCO yolov8m "sports ball" (cls 32), imgsz 1280 | 1/236 | — |
+  | stock COCO, imgsz 1920, conf 0.1 | 72/236 (31%) | — |
+  | stock COCO, imgsz 1280, 3×2 tiles | 56/236 | — |
+  | trained YOLO (Roboflow `ball`), 3×2 tiles, conf 0.25 | 57/236 (24%) | 28/168 (17%) |
+  | trained YOLO, 3×2 tiles, **conf 0.05** + motion gate (max_disp 150) | 135/236 (57%) | 109/168 (65%) |
+
+  **The 57%/65% numbers are misleading and were a reporting error.** They count any per-frame detection; with no ball GT, precision was never measured. On full-video review the **majority of detections at conf 0.05 are false positives — the detector fires on players' heads** (round, ~ball-sized, comparable colour at this scale). So lowering the confidence threshold bought "recall" almost entirely by admitting head FPs. **Lesson:** never report detection % as success without a precision/GT check; sample many overlay frames (or build a precision proxy), not one. (One spot-checked frame looked correct, which masked the systemic FP problem the user caught by watching the whole clip.)
+
+  **Root cause:** the ball is a **~10–15 px, low-contrast object in a wide elevated shot**, i.e. small-object detection at the limit, and **player heads are a strong false-positive attractor** at that scale. Compounding factors: (a) no in-domain ball labels to train/tune precision (Roboflow balls are larger/closer → poor scale transfer); (b) WASB is motion-based → blind on a held/slow ball; (c) tiling/high-res raise recall but also multiply head FPs.
+
+  **Decision (user, 2026-05-28):** stop ball work for the sprint; **pivot to pose-first** — Stage 2 RTMPose → multi-view 3D pose → Stage 5 PoseConv3D shot classification, with a possible **pose-only contest metric** (closest-defender hand distance to the shooter's release hand/elbow) that needs no ball. This means the PRD's headline ball-trajectory contest metric (Stage 7) becomes **stretch / future-work**, gated on ball detection becoming viable.
+
+  **Conditions to revisit the ball (likely on own iPhone footage, weeks 3-4):** (1) closer cameras → larger ball; (2) **multi-view fusion** — a frame where one camera loses the ball, another often sees it, and parabolic physics interpolates gaps; (3) **hand-label a few hundred in-domain ball frames** and fine-tune (the single highest-leverage fix); (4) a real **precision metric** (label ball boxes on a held-out set) before trusting any number; (5) consider a dedicated small-object pipeline (SAHI) + head-FP hard-negative mining.
+
+  **Artifacts kept (NOT deleted) for the revisit:** `stage3_ball/wasb_inference.py` (+ `diagnose_stage3`), `stage3_ball/yolo_ball.py` (tiling + motion gate), `modal_app.{run_wasb,run_yolo_ball,diagnose_wasb,verify_wasb_checkpoint,wasb_image}`, `scripts/train_yolo_ball.py` (resumable, best-only checkpointing), checkpoints `/artifacts/checkpoints/{wasb_basketball.pth,yolo_ball.pt}`. All lint/type-clean. Overlays for review: `outputs/stage3_overlays/basket_{S4T4_post,S1T1_pre}-yball-c05.mp4`.
+
+  **GPU cleanup TODO:** a detached training app (`ap-4fGnEOKJYkMPTcc7Pb41ud`, old code) may still be running an A10G — stop with `modal app stop <id>` to avoid spend.
+
+---
+
+## F20 — mmpose unusable on torch 2.12 / CUDA 13 → Stage 2 pivoted to rtmlib (ONNX)
+
+- **Status:** RESOLVED (2026-05-28) by pivoting Stage 2 inference off MMPose onto **rtmlib** (ONNX) — see `decisions.md` Decision 2 "Phase C engine swap". *(Renumbered from a transient F19 that collided with the Phase D ball-detector flag.)*
+- **Root cause (researched):** the OpenMMLab stack is effectively **unmaintained against modern PyTorch**. The Modal image runs **torch 2.12 + CUDA 13.0**; mmcv's last release (2.2.0, Apr 2024) ships prebuilt wheels only up to torch ~2.1, and an *open, unanswered* mmcv bug (#3310) reports `mmcv._ext` failing to compile on torch 2.9 + CUDA 13. So the whole error chain below was one disease (too-new env + unmaintained toolchain), and even forcing imports through would likely leave `mmcv._ext` CUDA ops broken at runtime — i.e. the remaining `mmcv==2.1.0` attempt was **predetermined not to reliably work** (confirmed by research before spending the rebuild).
+- **Symptom chain (all now moot):** (1) numpy-2 ABI vs xtcocotools wheel ("dtype size 96 vs 88"); (2) xtcocotools 1.13 sdist broken (missing `maskApi.c`), 1.14 wheel numpy-2-only; (3) mmpose hard-imports `mmdet` (RTMO head); (4) mmdet 3.x caps `mmcv<2.2.0` while only mmcv 2.2.0 builds here; (5) mmcv source build fails on modern setuptools dropping `pkg_resources` (the F1 issue); (6) non-deterministic mmdet resolution across builds.
+- **Resolution:** rtmlib depends only on `numpy`/`opencv`/`onnxruntime` (no torch/mmcv/mmpose/mmdet), so it is fully decoupled from the torch/CUDA/numpy web. Same model + weights (RTMPose-l Halpe-26, ONNX export of the `2abb7558` checkpoint, URL confirmed HTTP 200). Implemented in `stage2_pose/rtmpose_inference.py` on a dedicated lightweight `rtmpose_image`; the shared-image mm-stack experiments were reverted.
+- **Carryover for Phase E:** PoseConv3D (mmaction2) will hit the same torch-2.12 wall. Plan: isolate it in a dedicated **pinned-torch image** (the pattern Phase D used for `wasb_image`), not the shared image. Do NOT re-attempt mmpose/mmaction2 on the bleeding-edge shared image.
+- **Phase raised:** C (first attempt to `import mmpose` on the Stage 2 inference path).
+
+---
+
+## F21 — Phase C (Stage 2 pose) gate disposition: accepted via documented deviation
+
+- **Status:** RESOLVED (2026-05-28) — Phase C closed. Full rationale in `decisions.md` Decision 2 "Phase C result + gate disposition".
+- **Phase raised:** C.
+- **Summary:** Wrist PCK@0.05 across all **13 TrackID3x3 Indoor pose-GT clips** = **0.655** (mean 0.648 ± 0.043), below the 0.85 gate — accepted as a **documented acceptable deviation** (PRD §9.2 permits qualitative acceptance). The per-landmark diagnostic shows the eval is sound (shoulder **0.94** — a broken eval couldn't score any joint that high) and a textbook proximal→distal falloff (shoulder 0.94 → elbow 0.73 → wrist 0.66); the GT is model-derived (F18) at a strict ~12 px tolerance, so 0.655 understates true accuracy. User reviewed 13 wrist-overlay videos and confirmed wrist location looks accurate, **especially on shot-release frames** (the Stage 7 contest-metric-critical frames).
+- **Caveat:** per-landmark `head=0.675` is likely a GT-head-point vs Halpe-nose mapping offset, not a real localisation miss.
+- **Escalation (if needed):** the Phase 2 ★ RTMPose fine-tune remains the documented fallback if wrist accuracy proves insufficient on own footage downstream.
+
+---
+
+## F22 — Stage 5 overlay: `classify_windows` mutated the caller's keypoint array in place
+
+- **Status:** RESOLVED (2026-05-28). One-line fix in `stage5_classifier/infer.py`: `.copy()` the per-window keypoint/score slices before the posec3d pipeline.
+- **Symptom:** qualitative overlay videos drew the COCO-17 skeleton **off the player** (shrunk + shifted to the top-right), while the underlying keypoints were verified correct (a standalone debug render placed them perfectly on the player). Same code, same byte-identical video, same val.pkl — yet the *deployed* overlay was wrong and a local render with dummy probs was right.
+- **Root cause:** in `classify_windows`, the per-window slices `keypoint[s:e]` / `keypoint_score[s:e]` are **numpy views**, and `results["keypoint"] = kp[None]` shares that buffer. The posec3d transforms mutate in place — `PoseCompact` crop-*shifts* keypoints to the new bbox origin and `Resize(56,56)` *scales* them — so after inference the caller's array was corrupted. `render_overlay_clips` runs inference first, then hands the (now mutated) array to `make_shot_overlay_video`. The local debug skipped inference, so its array stayed pristine → masked the bug. Diagnosis hinged on noticing the only path difference was the preceding `classify_windows` call.
+- **Secondary effect:** the in-place mutation also corrupted inference itself — overlapping windows re-cropped already-shifted keypoints (double-shift). After the fix the dribble clip's false-event count dropped 7→5 (still nonzero — that is the separate trimmed-classifier→untrimmed-detector gap, not this bug).
+- **Lesson:** mmaction2/mmcv transforms are **in-place by contract**; never feed them a view of an array you intend to reuse. Copy at the window boundary, not just at the top (top-level `np.asarray(..., float32)` is a no-op when dtype already matches, so it does not protect callers).
+- **Phase raised:** E5 (qualitative overlay rendering).

@@ -14,6 +14,7 @@ import pytest
 from courtvision.io_utils import read_json_as, write_json
 from courtvision.schemas import Keypoint2D, Pose2D, Pose2DSequence
 from courtvision.stage2_pose.eval import (
+    _GT_LANDMARK_GROUPS,
     BLAZEPOSE33_TO_COCO17,
     _bbox_diag,
     _load_trackid3x3_pose_gt,
@@ -37,9 +38,7 @@ def _pose(
     kps = [Keypoint2D(x=base[0], y=base[1], score=1.0) for _ in range(26)]
     for i, (x, y) in overrides.items():
         kps[i] = Keypoint2D(x=x, y=y, score=1.0)
-    return Pose2D(
-        frame_idx=frame_idx, track_id=track_id, keypoints=kps, keypoint_format="halpe26"
-    )
+    return Pose2D(frame_idx=frame_idx, track_id=track_id, keypoints=kps, keypoint_format="halpe26")
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +96,16 @@ def test_wrist_distances_perfect_and_swapped() -> None:
 
 def test_score_clip_perfect_and_threshold() -> None:
     gt_kpts = [
-        (0.0, 0.0), (10.0, 50.0), (30.0, 50.0), (8.0, 90.0), (32.0, 90.0),
-        (5.0, 130.0), (35.0, 130.0), (20.0, 150.0), (12.0, 200.0), (28.0, 200.0),
+        (0.0, 0.0),
+        (10.0, 50.0),
+        (30.0, 50.0),
+        (8.0, 90.0),
+        (32.0, 90.0),
+        (5.0, 130.0),
+        (35.0, 130.0),
+        (20.0, 150.0),
+        (12.0, 200.0),
+        (28.0, 200.0),
     ]
     gt = {0: {"Red_Jersey": gt_kpts}}
     diag = _bbox_diag(gt_kpts)
@@ -111,7 +118,8 @@ def test_score_clip_perfect_and_threshold() -> None:
 
     off = 0.05 * diag + 1.0
     pred_off = _pose(
-        0, 7,
+        0,
+        7,
         {10: (gt_kpts[5][0] + off, gt_kpts[5][1]), 9: (gt_kpts[6][0] + off, gt_kpts[6][1])},
         base=(20.0, 100.0),
     )
@@ -122,8 +130,16 @@ def test_score_clip_perfect_and_threshold() -> None:
 
 def test_score_clip_matches_players_regardless_of_order() -> None:
     a = [
-        (0.0, 0.0), (10.0, 40.0), (30.0, 40.0), (8.0, 80.0), (32.0, 80.0),
-        (5.0, 120.0), (35.0, 120.0), (20.0, 140.0), (12.0, 180.0), (28.0, 180.0),
+        (0.0, 0.0),
+        (10.0, 40.0),
+        (30.0, 40.0),
+        (8.0, 80.0),
+        (32.0, 80.0),
+        (5.0, 120.0),
+        (35.0, 120.0),
+        (20.0, 140.0),
+        (12.0, 180.0),
+        (28.0, 180.0),
     ]
     b = [(x + 500.0, y) for (x, y) in a]
     gt = {0: {"Red_Jersey": a, "Blue_Jersey": b}}
@@ -133,6 +149,49 @@ def test_score_clip_matches_players_regardless_of_order() -> None:
     s = _score_trackid3x3_clip(seq, gt, pck_threshold=0.05)
     assert s["n_matched_players"] == 2.0
     assert s["wrist_pck"] == pytest.approx(1.0)
+
+
+def test_per_landmark_diagnostic_perfect_and_partial() -> None:
+    # GT skeleton (head→ankles). Build a prediction that places every Halpe
+    # keypoint exactly on its mapped GT point → every landmark group scores 1.0.
+    gt_kpts = [
+        (50.0, 20.0),
+        (35.0, 60.0),
+        (65.0, 60.0),
+        (30.0, 95.0),
+        (70.0, 95.0),
+        (28.0, 130.0),
+        (72.0, 130.0),
+        (50.0, 120.0),
+        (40.0, 200.0),
+        (60.0, 200.0),
+    ]
+    gt = {0: {"Red_Jersey": gt_kpts}}
+    overrides: dict[int, tuple[float, float]] = {}
+    for group in _GT_LANDMARK_GROUPS.values():
+        for gi, hi in group:
+            overrides[hi] = gt_kpts[gi]
+    pred = _pose(0, 1, overrides, base=(50.0, 110.0))
+    seq = Pose2DSequence(session_id="s", camera_id="c", fps=20.0, poses=[pred])
+
+    s = _score_trackid3x3_clip(seq, gt, pck_threshold=0.05)
+    assert set(s["per_landmark"]) == {"head", "shoulder", "elbow", "wrist", "hip", "ankle"}
+    for landmark, pck in s["per_landmark"].items():
+        assert pck == pytest.approx(1.0), landmark
+    assert s["all_keypoint_pck"] == pytest.approx(1.0)
+    assert s["wrist_pck"] == pytest.approx(1.0)
+
+    # Now move only the wrists far off → wrist group drops to 0, others stay 1.0.
+    diag = _bbox_diag(gt_kpts)
+    off = 0.05 * diag + 5.0
+    overrides[10] = (gt_kpts[5][0] + off, gt_kpts[5][1])
+    overrides[9] = (gt_kpts[6][0] + off, gt_kpts[6][1])
+    pred2 = _pose(0, 1, overrides, base=(50.0, 110.0))
+    seq2 = Pose2DSequence(session_id="s", camera_id="c", fps=20.0, poses=[pred2])
+    s2 = _score_trackid3x3_clip(seq2, gt, pck_threshold=0.05)
+    assert s2["per_landmark"]["wrist"] == pytest.approx(0.0)
+    assert s2["per_landmark"]["elbow"] == pytest.approx(1.0)
+    assert 0.0 < s2["all_keypoint_pck"] < 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +228,9 @@ def test_evaluate_trackid3x3_on_real_gt(tmp_path: Path) -> None:
 
 def test_pose2dsequence_round_trip(tmp_path: Path) -> None:
     seq = Pose2DSequence(
-        session_id="rt", camera_id="cam0", fps=20.0,
+        session_id="rt",
+        camera_id="cam0",
+        fps=20.0,
         poses=[_pose(0, 1, {9: (1.0, 2.0), 10: (3.0, 4.0)})],
     )
     p = tmp_path / "pose2d_rt_cam0.json"
@@ -182,11 +243,60 @@ def test_pose2dsequence_round_trip(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_run_stage2_importable_without_mmpose() -> None:
-    """The module imports cleanly even though mmpose isn't installed locally."""
+def test_run_stage2_importable_without_rtmlib() -> None:
+    """The module imports cleanly even though rtmlib isn't installed locally."""
     from courtvision.stage2_pose.rtmpose_inference import run_stage2  # noqa: F401
 
 
 def test_run_stage2_inference_smoke() -> None:
-    pytest.importorskip("mmpose", reason="OpenMMLab stack is Modal-only (F1/F17)")
+    pytest.importorskip("rtmlib", reason="rtmlib/onnxruntime live on the Stage 2 image (F20)")
     # Real inference is validated on Modal via the Phase C user-test step.
+
+
+# ---------------------------------------------------------------------------
+# Pose-overlay renderer (laptop-runnable — no mmpose)
+# ---------------------------------------------------------------------------
+
+
+def test_make_pose_overlay_video_smoke(synthetic_clip: Path, tmp_path: Path) -> None:
+    """Renders skeletons onto the synthetic clip → valid MP4 with same frame count."""
+    import cv2
+
+    from courtvision.stage2_pose.overlay import make_pose_overlay_video
+
+    seq = Pose2DSequence(
+        session_id="ov",
+        camera_id="cam0",
+        fps=30.0,
+        poses=[
+            _pose(i, 1, {9: (40.0, 40.0 + i), 10: (60.0, 40.0 + i), 0: (50.0, 20.0)})
+            for i in range(5)
+        ],
+    )
+    out = tmp_path / "pose_overlay.mp4"
+    make_pose_overlay_video(synthetic_clip, seq, out)
+    assert out.exists() and out.stat().st_size > 0
+
+    cap = cv2.VideoCapture(str(out))
+    try:
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+    assert n == 5
+
+
+def test_make_pose_overlay_caps_max_seconds(synthetic_clip: Path, tmp_path: Path) -> None:
+    import cv2
+
+    from courtvision.stage2_pose.overlay import make_pose_overlay_video
+
+    seq = Pose2DSequence(session_id="ov", camera_id="cam0", fps=30.0, poses=[])
+    out = tmp_path / "pose_overlay_capped.mp4"
+    make_pose_overlay_video(synthetic_clip, seq, out, max_seconds=0.1)
+
+    cap = cv2.VideoCapture(str(out))
+    try:
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+    assert 2 <= n <= 4  # 0.1s @ 30fps ≈ 3 frames (±1 for container quirks)

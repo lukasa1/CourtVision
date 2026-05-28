@@ -1,14 +1,17 @@
-"""Stage 2 — RTMPose-l Halpe-26 top-down inference. PRD §9.2.
+"""Stage 2 — RTMPose-l Halpe-26 top-down inference (rtmlib / ONNX). PRD §9.2.
 
 Top-down 2D pose on the player crops emitted by Stage 1. Public entrypoint
 ``run_stage2`` consumes a :class:`courtvision.schemas.TrackSequence` plus the
 source clip and returns a :class:`courtvision.schemas.Pose2DSequence` with
 26-keypoint Halpe poses, one per (frame, track).
 
-The OpenMMLab stack is Modal-only (it doesn't build on macOS arm64 — see
-``flags.md`` F1/F17), so ``mmpose`` is imported lazily inside ``run_stage2``;
-this module imports cleanly on the laptop for the pure-Python callers (tests,
-schema round-trips) without the stack present.
+Inference runs through **rtmlib** (ONNX / onnxruntime), not the MMPose PyTorch
+stack: the OpenMMLab stack is unusable on the Modal image's bleeding-edge
+torch 2.12 + CUDA 13 (see ``flags.md`` F20 / ``decisions.md`` Decision 2). This
+is the *same* RTMPose-l Halpe-26 model + weights, just a different runtime.
+rtmlib depends only on numpy/opencv/onnxruntime, so this module needs no torch
+or mmcv; ``rtmlib`` is imported lazily so the file imports on the laptop for the
+pure-Python callers (tests, schema round-trips) without it installed.
 """
 
 from __future__ import annotations
@@ -25,53 +28,13 @@ from courtvision.schemas import Keypoint2D, Pose2D, Pose2DSequence, Track, Track
 
 _log = get_logger(__name__)
 
-# OpenMMLab ships its config tree inside the wheel under ``<pkg>/.mim/`` so
-# ``mim``/downstream tools can find it. The checkpoint we pull
-# (``rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192``) is a 26-keypoint
-# Halpe head — it must be paired with a *halpe26* model config, NOT the
-# coco-256x192 (17-kpt) config the Phase-A stub referenced. We try the known
-# halpe26 config relpaths in order; ``config['model']['cfg_path']`` overrides.
-_HALPE26_CONFIG_CANDIDATES = (
-    "configs/body_2d_keypoint/rtmpose/body8/rtmpose-l_8xb512-700e_body8-halpe26-256x192.py",
-    "configs/body_2d_keypoint/rtmpose/body8/rtmpose-l_8xb1024-700e_body8-halpe26-256x192.py",
+# RTMPose-l Halpe-26 ONNX (body7 pretrain, 256x192) — the ONNX export of the
+# same checkpoint Stage 2 was specced on (hash 2abb7558). rtmlib downloads it
+# on first use. Override via config['model']['onnx_model'].
+_DEFAULT_ONNX = (
+    "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/"
+    "rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192-2abb7558_20230605.zip"
 )
-
-
-def _resolve_model_config(model_cfg: dict[str, Any]) -> str:
-    """Return a filesystem path to the RTMPose Halpe-26 model config.
-
-    Honours an explicit ``cfg_path`` override; otherwise searches the
-    installed ``mmpose`` package's bundled ``.mim/configs`` tree for a known
-    halpe26 RTMPose-l config. Raises with actionable guidance if none is
-    found (the exact filename can drift across mmpose releases).
-    """
-    override = model_cfg.get("cfg_path")
-    if override:
-        p = Path(override)
-        if not p.exists():
-            raise FileNotFoundError(f"model.cfg_path does not exist: {p}")
-        return str(p)
-
-    import mmpose  # lazy: Modal-only
-
-    mim_root = Path(mmpose.__file__).parent / ".mim"
-    for rel in _HALPE26_CONFIG_CANDIDATES:
-        cand = mim_root / rel
-        if cand.exists():
-            _log.info("resolved RTMPose Halpe-26 config: %s", cand)
-            return str(cand)
-
-    # Last resort: glob for any rtmpose-l halpe26 config under the tree.
-    matches = sorted(mim_root.glob("configs/**/rtmpose-l_*halpe26*.py"))
-    if matches:
-        _log.info("resolved RTMPose Halpe-26 config (glob): %s", matches[0])
-        return str(matches[0])
-
-    raise FileNotFoundError(
-        "could not locate an RTMPose-l Halpe-26 model config under "
-        f"{mim_root}/configs. Set config['model']['cfg_path'] to the correct "
-        "mmpose config .py for the rtmpose-l body8 halpe26 head."
-    )
 
 
 def _video_meta(video_path: Path) -> tuple[float, int]:
@@ -98,38 +61,32 @@ def _xywh_to_xyxy(bbox: list[float]) -> list[float]:
     return [x, y, x + w, y + h]
 
 
-def run_stage2(
-    tracks: TrackSequence, video_path: Path, config: dict[str, Any]
-) -> Pose2DSequence:
+def run_stage2(tracks: TrackSequence, video_path: Path, config: dict[str, Any]) -> Pose2DSequence:
     """Top-down pose inference on Stage 1 crops. Returns ``Pose2DSequence``.
 
-    Locked model: RTMPose-l, Halpe-26 keypoints (PRD §9.2). For each frame
-    that has tracks, runs ``inference_topdown`` on that frame's bboxes (one
-    instance per track) and records a 26-keypoint :class:`Pose2D` per track.
-    Frames with no tracks produce no poses. ``config`` is shaped like
+    RTMPose-l Halpe-26 via rtmlib (ONNX). For each frame that has tracks, runs
+    the pose model on that frame's bboxes (one instance per track) and records
+    a 26-keypoint :class:`Pose2D` per track; frames with no tracks produce no
+    poses. ``config`` is shaped like
     ``configs/stage2_pose/rtmpose_l_halpe26.yaml``.
     """
-    from mmpose.apis import inference_topdown, init_model  # lazy: Modal-only
+    from rtmlib import RTMPose  # lazy: rtmlib/onnxruntime only on the inference image
 
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"video not found: {video_path}")
 
     model_cfg = config["model"]
-    weights = str(model_cfg["weights"])
-    if not Path(weights).exists():
-        raise FileNotFoundError(
-            f"RTMPose checkpoint not found: {weights} (expected on the "
-            "artifacts Volume at /artifacts/checkpoints/rtmpose_l_halpe26.pth)"
-        )
+    onnx_model = str(model_cfg.get("onnx_model") or _DEFAULT_ONNX)
+    w, h = model_cfg.get("input_size", [192, 256])
+    backend = str(model_cfg.get("backend", "onnxruntime"))
+    device = str(model_cfg.get("device", "cpu"))
     num_keypoints = int(model_cfg.get("num_keypoints", 26))
-    device = str(model_cfg.get("device", "cuda:0"))
-    cfg_path = _resolve_model_config(model_cfg)
 
     fps, n_frames = _video_meta(video_path)
     by_frame = _tracks_by_frame(tracks)
     _log.info(
-        "stage2: %s cam=%s fps=%.2f n_frames=%d tracked_frames=%d device=%s",
+        "stage2(rtmlib): %s cam=%s fps=%.2f n_frames=%d tracked_frames=%d device=%s",
         tracks.session_id,
         tracks.camera_id,
         fps,
@@ -138,7 +95,12 @@ def run_stage2(
         device,
     )
 
-    model = init_model(cfg_path, weights, device=device)
+    pose_model = RTMPose(
+        onnx_model=onnx_model,
+        model_input_size=(int(w), int(h)),
+        backend=backend,
+        device=device,
+    )
 
     poses: list[Pose2D] = []
     cap = cv2.VideoCapture(str(video_path))
@@ -152,19 +114,18 @@ def run_stage2(
                 break
             frame_tracks = by_frame.get(frame_idx)
             if frame_tracks:
-                bboxes = np.array(
-                    [_xywh_to_xyxy(t.bbox) for t in frame_tracks], dtype=np.float32
-                )
-                samples = inference_topdown(model, frame, bboxes, bbox_format="xyxy")
-                for t, sample in zip(frame_tracks, samples, strict=True):
-                    inst = sample.pred_instances
-                    kpts = np.asarray(inst.keypoints)[0]  # (K, 2)
-                    scores = np.asarray(inst.keypoint_scores)[0]  # (K,)
-                    if kpts.shape[0] != num_keypoints:
+                bboxes = [_xywh_to_xyxy(t.bbox) for t in frame_tracks]
+                # rtmlib: (N, K, 2) keypoints + (N, K) scores, order matches bboxes.
+                kpts, scores = pose_model(frame, bboxes=bboxes)
+                kpts = np.asarray(kpts)
+                scores = np.asarray(scores)
+                for i, t in enumerate(frame_tracks):
+                    person_kpts = kpts[i]
+                    person_scores = scores[i]
+                    if person_kpts.shape[0] != num_keypoints:
                         raise ValueError(
                             f"expected {num_keypoints} keypoints from RTMPose, "
-                            f"got {kpts.shape[0]} — model config likely not the "
-                            "halpe26 head (see _resolve_model_config)"
+                            f"got {person_kpts.shape[0]} — wrong ONNX model?"
                         )
                     poses.append(
                         Pose2D(
@@ -172,9 +133,9 @@ def run_stage2(
                             track_id=t.track_id,
                             keypoints=[
                                 Keypoint2D(
-                                    x=float(kpts[k][0]),
-                                    y=float(kpts[k][1]),
-                                    score=float(scores[k]),
+                                    x=float(person_kpts[k][0]),
+                                    y=float(person_kpts[k][1]),
+                                    score=float(person_scores[k]),
                                 )
                                 for k in range(num_keypoints)
                             ],

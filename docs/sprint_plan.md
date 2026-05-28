@@ -14,7 +14,7 @@ Distilled from PRD §10 and §15. The PRD is the source of truth; this file is a
 
 Phase E is sub-phased E1-E5 — see PRD §10 Phase E.
 
-**Status:** Phase A ✅ · Phase B ✅ (closed 2026-05-27 — IDF1 0.785 ± 0.083 on TrackID3x3 test, gate ≥ 0.70 met; persistence layers A1/B1/C1 landed, A2/A3/B2/C2/D1/D2 deferred per flags.md F15) · Phases C–E pending.
+**Status:** Phase A ✅ · Phase B ✅ (closed 2026-05-27 — IDF1 0.785 ± 0.083 on TrackID3x3 test, gate ≥ 0.70 met; persistence layers A1/B1/C1 landed, A2/A3/B2/C2/D1/D2 deferred per flags.md F15) · Phase C ✅ (closed 2026-05-28 — RTMPose-l Halpe-26 via rtmlib/ONNX, PRD §5.2 engine deviation; wrist PCK 0.655 on 13 TrackID3x3 clips accepted via documented deviation + qualitative review, see decisions.md Decision 2 / flags.md F20–F21) · Phases D–E pending.
 
 ## Phase boundaries (PRD §15.3)
 
