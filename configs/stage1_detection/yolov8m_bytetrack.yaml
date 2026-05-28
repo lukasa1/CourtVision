@@ -25,4 +25,20 @@ tracker:
   # harness writes to this dict. Empty → use bundled defaults verbatim.
   # Allowed keys: track_buffer, match_thresh, new_track_thresh,
   # track_high_thresh, track_low_thresh, fuse_score.
-  overrides: {}
+  # Calibrated winners (PRD §10 Phase B sweep): new_track_thresh 0.8,
+  # fuse_score false.
+  overrides:
+    new_track_thresh: 0.8
+    fuse_score: false
+
+# Post-processing on the raw ByteTrack output (F15 persistence work):
+# stitch fragmented tracks, then drop stationary non-players (refs).
+# Calibrated on TrackID3x3 Indoor; lifts IDF1 ~+0.08-0.13. Remove this
+# block to get raw tracks.
+postprocess:
+  stitch:
+    max_gap_frames: 15
+    base_radius_px: 60
+  filter_non_players:
+    min_players: 6
+    speed_floor_frac: 0.00068   # ~1 px/frame at 720p; resolution-independent

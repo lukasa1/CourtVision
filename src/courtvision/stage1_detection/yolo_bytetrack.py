@@ -81,16 +81,18 @@ def _resolve_tracker_cfg(tracker_cfg: dict[str, Any]) -> str:
     return str(tmp_path)
 
 
-def _video_meta(video_path: Path) -> tuple[float, int]:
+def _video_meta(video_path: Path) -> tuple[float, int, int, int]:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise FileNotFoundError(f"cannot open video: {video_path}")
     try:
         fps = float(cap.get(cv2.CAP_PROP_FPS))
         n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     finally:
         cap.release()
-    return fps, n_frames
+    return fps, n_frames, width, height
 
 
 def run_stage1(video_path: Path, config: dict[str, Any]) -> TrackSequence:
@@ -111,9 +113,15 @@ def run_stage1(video_path: Path, config: dict[str, Any]) -> TrackSequence:
     model_cfg = config["model"]
     tracker_cfg = config.get("tracker", {})
 
-    fps, n_frames = _video_meta(video_path)
+    fps, n_frames, width, height = _video_meta(video_path)
     _log.info(
-        "stage1: %s cam=%s fps=%.2f n_frames=%d", session_id, camera_id, fps, n_frames
+        "stage1: %s cam=%s fps=%.2f n_frames=%d %dx%d",
+        session_id,
+        camera_id,
+        fps,
+        n_frames,
+        width,
+        height,
     )
 
     weights = _resolve_weights(model_cfg.get("weights"))
@@ -159,13 +167,22 @@ def run_stage1(video_path: Path, config: dict[str, Any]) -> TrackSequence:
     # Prefer the stream's observed frame count when the container header
     # disagreed with reality (some iPhone HEVCs report 0 for n_frames).
     effective_n_frames = observed_frames if n_frames <= 0 else n_frames
-    return TrackSequence(
+    seq = TrackSequence(
         session_id=session_id,
         camera_id=camera_id,
         fps=fps if fps > 0 else 0.0,
         n_frames=effective_n_frames,
         tracks=tracks,
     )
+
+    # Optional post-processing: stitch fragmented tracks + drop stationary
+    # non-players (refs/coaches). Config-gated; no-op when absent.
+    pp_cfg = config.get("postprocess")
+    if pp_cfg:
+        from courtvision.stage1_detection.postprocess import postprocess
+
+        seq = postprocess(seq, pp_cfg, frame_w=float(width), frame_h=float(height))
+    return seq
 
 
 __all__ = ["run_stage1"]

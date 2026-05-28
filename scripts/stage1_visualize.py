@@ -24,11 +24,20 @@ _DEFAULT_MODEL = {
     "name": "yolov8m",
     "weights": "/artifacts/checkpoints/yolov8m.pt",
     "classes": [0],
-    "conf": 0.4,
+    "conf": 0.3,
     "iou": 0.5,
     "imgsz": 1280,
 }
-_DEFAULT_TRACKER = {"name": "bytetrack", "cfg": "bytetrack.yaml"}
+# Calibrated config from the Phase B sweep + persistence work.
+_DEFAULT_TRACKER = {
+    "name": "bytetrack",
+    "cfg": "bytetrack.yaml",
+    "overrides": {"new_track_thresh": 0.8, "fuse_score": False},
+}
+_DEFAULT_POSTPROCESS = {
+    "stitch": {"max_gap_frames": 15, "base_radius_px": 60},
+    "filter_non_players": {"min_players": 6, "speed_floor_frac": 0.00068},
+}
 
 
 @app.local_entrypoint()
@@ -40,14 +49,17 @@ def run(
     conf: float = _DEFAULT_MODEL["conf"],  # type: ignore[assignment]
     iou: float = _DEFAULT_MODEL["iou"],  # type: ignore[assignment]
     imgsz: int = _DEFAULT_MODEL["imgsz"],  # type: ignore[assignment]
+    postprocess: bool = True,
 ) -> None:
     """Inference → overlay pipeline. Prints the artifacts-relpath of the overlay."""
-    config = {
+    config: dict = {
         "session_id": session_id,
         "camera_id": camera_id,
         "model": {**_DEFAULT_MODEL, "conf": conf, "iou": iou, "imgsz": imgsz},
         "tracker": _DEFAULT_TRACKER,
     }
+    if postprocess:
+        config["postprocess"] = _DEFAULT_POSTPROCESS
     tracks_relpath = run_yolo_bytetrack.remote(video_relpath, config)
     _log.info("tracks written to /artifacts/%s", tracks_relpath)
 
