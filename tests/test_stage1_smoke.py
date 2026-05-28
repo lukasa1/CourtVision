@@ -148,7 +148,9 @@ def test_postprocess_filter_drops_stationary_keeps_floor() -> None:
         tracks.append(_track(99, f, x=900, y=900))  # ref, no motion
     seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
 
-    out = filter_non_players(seq, frame_w=1000, frame_h=1000, min_players=6, mobility_floor=0.01)
+    out = filter_non_players(
+        seq, frame_w=1000, frame_h=1000, min_players=6, speed_floor_frac=0.001
+    )
     kept_ids = {t.track_id for t in out.tracks}
     assert 99 not in kept_ids  # ref dropped
     assert kept_ids == {1, 2, 3, 4, 5, 6}
@@ -165,8 +167,8 @@ def test_postprocess_filter_floor_prevents_overprune() -> None:
     for f in range(10):
         tracks.append(_track(99, f, x=900, y=900))  # 1 stationary
     seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
-    out = filter_non_players(seq, frame_w=1000, frame_h=1000, min_players=6, mobility_floor=0.5)
-    # mobility_floor very high → nothing passes → floor keeps top 6 (all of them).
+    out = filter_non_players(seq, frame_w=1000, frame_h=1000, min_players=6, speed_floor_frac=0.5)
+    # floor_frac very high → nothing passes → floor keeps top 6 (all of them).
     assert len({t.track_id for t in out.tracks}) == 6
 
 

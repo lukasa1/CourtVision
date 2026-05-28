@@ -185,21 +185,31 @@ def filter_non_players(
     frame_w: float,
     frame_h: float,
     min_players: int = 6,
-    mobility_floor: float = 0.01,
+    speed_floor_frac: float = 0.00068,
 ) -> TrackSequence:
-    """Drop low-mobility tracks (refs / coaches), keeping a floor of players.
+    """Drop stationary tracks (refs / coaches), keeping a floor of players.
 
-    Ranks tracks by ``spatial_extent``. Keeps every track at or above
-    ``mobility_floor``; if that leaves fewer than ``min_players``, keeps
-    the ``min_players`` most-mobile regardless. Never caps above the
-    number of mobile tracks — genuine extra players survive.
+    Discriminator is ``mean_speed`` normalised by the frame diagonal —
+    resolution-independent, so the same threshold transfers across clip
+    resolutions (TrackID3x3 720p → own footage 1080p). Refs stand still
+    (speed ≈ 0); players move (speed well above the floor) even in short
+    fragments — which is why speed beats ``spatial_extent`` here (a brief
+    fragment of a real player has high speed but low extent).
+
+    Default ``speed_floor_frac`` = 0.00068 ≈ 1 px/frame at 1280x720.
+    Keeps every track at or above the floor; if that leaves fewer than
+    ``min_players``, keeps the ``min_players`` fastest regardless. Never
+    caps above the number of moving tracks — genuine extras survive.
     """
     feats = compute_track_features(seq, frame_w, frame_h)
     if not feats:
         return seq
 
-    ranked = sorted(feats.values(), key=lambda f: f.spatial_extent, reverse=True)
-    above_floor = [f.track_id for f in ranked if f.spatial_extent >= mobility_floor]
+    diag = (frame_w**2 + frame_h**2) ** 0.5 or 1.0
+    speed_floor_px = speed_floor_frac * diag
+
+    ranked = sorted(feats.values(), key=lambda f: f.mean_speed, reverse=True)
+    above_floor = [f.track_id for f in ranked if f.mean_speed >= speed_floor_px]
     if len(above_floor) >= min_players:
         keep = set(above_floor)
     else:
@@ -208,7 +218,7 @@ def filter_non_players(
     dropped = [f.track_id for f in ranked if f.track_id not in keep]
     if dropped:
         _log.info(
-            "filter_non_players: kept %d, dropped %d low-mobility (ids=%s)",
+            "filter_non_players: kept %d, dropped %d stationary (ids=%s)",
             len(keep),
             len(dropped),
             dropped,
@@ -257,7 +267,7 @@ def postprocess(
             frame_w=frame_w,
             frame_h=frame_h,
             min_players=int(filt_cfg.get("min_players", 6)),
-            mobility_floor=float(filt_cfg.get("mobility_floor", 0.01)),
+            speed_floor_frac=float(filt_cfg.get("speed_floor_frac", 0.00068)),
         )
     return out
 
