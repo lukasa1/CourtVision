@@ -115,6 +115,91 @@ def test_evaluate_trackid3x3_handles_space_separated_gt(tmp_path: Path) -> None:
     assert result["summary"]["idf1"] == pytest.approx(1.0)
 
 
+def _track(tid: int, frame: int, x: float, y: float, w: float = 20, h: float = 40) -> Track:
+    return Track(track_id=tid, bbox=[x, y, w, h], confidence=0.9, frame_idx=frame)
+
+
+def test_postprocess_features_distinguish_mover_from_stationary() -> None:
+    from courtvision.stage1_detection.postprocess import compute_track_features
+
+    tracks = []
+    # id 1: roams across the frame
+    for f in range(10):
+        tracks.append(_track(1, f, x=10 + f * 50, y=10 + f * 30))
+    # id 2: stationary (a "ref")
+    for f in range(10):
+        tracks.append(_track(2, f, x=500, y=500))
+    seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
+    feats = compute_track_features(seq, frame_w=1000, frame_h=1000)
+    assert feats[1].spatial_extent > feats[2].spatial_extent
+    assert feats[2].spatial_extent == pytest.approx(0.0)
+    assert feats[1].mean_speed > feats[2].mean_speed
+
+
+def test_postprocess_filter_drops_stationary_keeps_floor() -> None:
+    from courtvision.stage1_detection.postprocess import filter_non_players
+
+    tracks = []
+    # 6 movers (players) + 1 stationary (ref)
+    for tid in range(1, 7):
+        for f in range(10):
+            tracks.append(_track(tid, f, x=10 + f * 40 + tid * 5, y=10 + f * 25))
+    for f in range(10):
+        tracks.append(_track(99, f, x=900, y=900))  # ref, no motion
+    seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
+
+    out = filter_non_players(seq, frame_w=1000, frame_h=1000, min_players=6, mobility_floor=0.01)
+    kept_ids = {t.track_id for t in out.tracks}
+    assert 99 not in kept_ids  # ref dropped
+    assert kept_ids == {1, 2, 3, 4, 5, 6}
+
+
+def test_postprocess_filter_floor_prevents_overprune() -> None:
+    """If only 5 movers + 1 ref, floor of 6 keeps all 6 (won't drop a real player below floor)."""
+    from courtvision.stage1_detection.postprocess import filter_non_players
+
+    tracks = []
+    for tid in range(1, 6):  # 5 movers
+        for f in range(10):
+            tracks.append(_track(tid, f, x=10 + f * 40, y=10 + f * 25 + tid * 7))
+    for f in range(10):
+        tracks.append(_track(99, f, x=900, y=900))  # 1 stationary
+    seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
+    out = filter_non_players(seq, frame_w=1000, frame_h=1000, min_players=6, mobility_floor=0.5)
+    # mobility_floor very high → nothing passes → floor keeps top 6 (all of them).
+    assert len({t.track_id for t in out.tracks}) == 6
+
+
+def test_postprocess_stitch_rejoins_fragment() -> None:
+    from courtvision.stage1_detection.postprocess import stitch_tracks
+
+    tracks = []
+    # id 1: frames 0-4 moving right
+    for f in range(5):
+        tracks.append(_track(1, f, x=100 + f * 10, y=200))
+    # id 2: frames 7-11, starts near where id 1 left off (gap=2, small distance)
+    for f in range(7, 12):
+        tracks.append(_track(2, f, x=150 + (f - 7) * 10, y=205))
+    seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=12, tracks=tracks)
+    out = stitch_tracks(seq, max_gap_frames=10, base_radius_px=50.0)
+    # id 2 should be relabelled to id 1.
+    assert {t.track_id for t in out.tracks} == {1}
+
+
+def test_postprocess_stitch_respects_distance_gate() -> None:
+    from courtvision.stage1_detection.postprocess import stitch_tracks
+
+    tracks = []
+    for f in range(5):
+        tracks.append(_track(1, f, x=100, y=100))
+    # id 2 starts far away (gap=1, distance ~800) → should NOT merge.
+    for f in range(5, 10):
+        tracks.append(_track(2, f, x=900, y=100))
+    seq = TrackSequence(session_id="s", camera_id="c", fps=30, n_frames=10, tracks=tracks)
+    out = stitch_tracks(seq, max_gap_frames=10, base_radius_px=50.0)
+    assert {t.track_id for t in out.tracks} == {1, 2}  # unchanged
+
+
 def test_sweep_set_by_path_creates_nested_keys() -> None:
     from courtvision.stage1_detection.sweep import set_by_path
 
