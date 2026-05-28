@@ -14,6 +14,8 @@ Distilled from PRD §10 and §15. The PRD is the source of truth; this file is a
 
 Phase E is sub-phased E1-E5 — see PRD §10 Phase E.
 
+**Status:** Phase A ✅ · Phase B ✅ (closed 2026-05-27 — IDF1 0.785 ± 0.083 on TrackID3x3 test, gate ≥ 0.70 met; persistence layers A1/B1/C1 landed, A2/A3/B2/C2/D1/D2 deferred per flags.md F15) · Phases C–E pending.
+
 ## Phase boundaries (PRD §15.3)
 
 Phases run strictly in order. Claude Code does **not** advance past a STOP gate until the user explicitly says "begin Phase X". Sub-phases of E follow the same rule.
