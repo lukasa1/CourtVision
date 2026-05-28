@@ -161,3 +161,41 @@ Format per flag:
   - **Primary (headline mAP):** DeepSportradar Basketball Instants — `deepsportradar/basketball-instants-dataset` on Kaggle. Academic benchmark (ACM MMSports 2022, https://arxiv.org/abs/2208.08190), 1,456 images / 338 ball annotations, CC-BY-NC-SA 4.0, professional LNB-Pro-A broadcast video at 2-5 MP. mAP numbers are literature-comparable — what Decision 3 actually cares about.
   - **Secondary (volume + diversity):** OwnProjects `basketball-w2xcw` on Roboflow Universe. Closest class-signature match to the original PRD intent (`ball, made, person, rim, shoot`), ~2-5K images (page 403s to WebFetch; agent estimate), public domain. Reported alongside DeepSportradar to demonstrate cross-dataset robustness.
 - **Action:** `decisions.md` Decision 3 should be updated in a follow-up commit to reference these two datasets by name instead of "U Arizona Roboflow basketball." Out of scope for this flag (decisions.md is a sourced Milestone-2 document; Lukas to decide whether to amend or add a footnote).
+
+---
+
+## F13 — `lapx` dependency added for ByteTrack
+
+- **Status:** RESOLVED
+- **Phase raised:** B
+- **Description:** Ultralytics' ByteTrack imports `lap` (linear-assignment solver) at runtime. It's not a hard dependency of the `ultralytics` wheel, and ultralytics' built-in auto-install fails inside `uv`-managed venvs because they ship no `pip`. Added `lapx>=0.5.11` (maintained fork with prebuilt macOS arm64 + Linux wheels; exposes the same `lap` module) to `pyproject.toml`.
+- **Why it matters:** Without it, `model.track(...)` raises `ModuleNotFoundError: No module named 'lap'`. New top-level dep — flagged per PRD §15.6; user approved.
+- **Resolution:** Added + locked in `uv.lock`. Commit `a9f8a43`.
+
+---
+
+## F14 — numpy 2.0 / motmetrics + Modal Volume consistency fixes (Phase B)
+
+- **Status:** RESOLVED (informational)
+- **Phase raised:** B
+- **Description:** Three small Phase-B runtime issues surfaced during the Stage 1 sweep:
+  1. **`np.asfarray` removed in NumPy 2.0** — motmetrics 1.4.0 calls it; Modal's image pulls numpy 2.x via the OpenMMLab stack despite our `<2` pin. Shimmed `np.asfarray` in `stage1_detection/eval.py` before importing motmetrics.
+  2. **Modal Volume eventual consistency** — `eval_sweep_run` / `make_stage1_overlay` start fresh containers that snapshot the volume at mount; tracks just committed by a sibling function aren't visible without an explicit `.reload()`. Added reloads.
+  3. **`modal run` local-client disconnect** — orchestrating many sequential `.starmap()`/`.remote()` calls from a background `modal run` subprocess crashed mid-sweep (`ConflictError: app is stopped`). Moved the coordinate-descent loop into a server-side `@app.function` (`orchestrate_dev_sweep` / `orchestrate_test_run`); local entrypoint blocks on one `.remote()`.
+- **Why it matters:** All three are general Modal+ML gotchas that will recur in Phases C/D/E (any cross-function volume read; any long orchestration). Documented so future stages reuse the patterns (`.reload()` on read; server-side orchestration for long multi-call jobs; shim deprecated numpy APIs the mm-stack drags in).
+- **Resolution:** Commits `60327d6` (asfarray), `6858444` (reload), `bca8f35` (server-side orchestrator).
+
+---
+
+## F15 — Stage 1 track-persistence backlog (deferred tuning layers)
+
+- **Status:** OPEN / DEFERRED (backlog — revisit if time permits or downstream needs it)
+- **Phase raised:** B (after qualitative review of tuned overlays — IDF1 ≈ 0.71 test, but visible ID-switching)
+- **Description:** Coordinate-descent ByteTrack tuning lifted dev IDF1 0.5564 → 0.6286 and passed the test gate (0.7090). Knob winners: `fuse_score=false`, `new_track_thresh=0.8`. To push track *persistence* further, several layers were brainstormed. The user selected **A1 (player-count cap)**, **B1 (post-hoc stitching)**, and **C1-simplified (distance gate)** for immediate work, and is evaluating **B2 (Re-ID/BoT-SORT)**. The following are explicitly DEFERRED for later:
+  - **A2 — court-region mask.** Reject detections whose foot-point falls outside the court polygon (from TrackID3x3 `court_keypoints/`). User: "try A2 after everything else... we'll do it if we need it." Contingent on whether A1+B1+C1 leave spurious off-court detections.
+  - **A3 — team-colour clustering.** Cluster bbox-interior colour into 2 jersey groups; constrain a track's team membership from flipping. Helps cross-team confusion; weak within-team. Deferred.
+  - **C2 — cross-camera identity reconciliation.** Use multi-view triangulation (Stage 4) to assign canonical IDs across the 3 cameras, outvoting single-camera ID swaps. *Highest leverage for the final pipeline / contest metric* but belongs to Stage 4 + own footage. Deferred to weeks 3-4.
+  - **D1 — jersey-number OCR.** TrackID3x3's own baseline uses this (`jersey-number-pipeline`) to disambiguate teammates. ~3 days; SOTA for this dataset. Deferred.
+  - **D2 — train a player-specific Re-ID model** on own footage. 1-2 weeks. Out of scope.
+- **Why it matters:** Track stability *during shot-release windows* drives Stage 5 (classifier window integrity) and Stage 7 (closest-defender wrist-to-trajectory — the headline metric). Off-ball stability matters less. The downstream-impact analysis (this conversation) concluded the real fix for the contest metric is C2 cross-camera, with A1/B1/C1 as cheap single-camera robustness now.
+- **Resolution / next step:** Execute A1 + B1 + C1-simplified as Phase B persistence work (Phase B STOP gate stays open until they land + re-eval). Decide B2 (BoT-SORT, PRD §5.2 deviation) separately. Revisit A2/A3/C2/D1/D2 from this list as needed.
