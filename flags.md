@@ -300,3 +300,75 @@ Format per flag:
 - **Secondary effect:** the in-place mutation also corrupted inference itself — overlapping windows re-cropped already-shifted keypoints (double-shift). After the fix the dribble clip's false-event count dropped 7→5 (still nonzero — that is the separate trimmed-classifier→untrimmed-detector gap, not this bug).
 - **Lesson:** mmaction2/mmcv transforms are **in-place by contract**; never feed them a view of an array you intend to reuse. Copy at the window boundary, not just at the top (top-level `np.asarray(..., float32)` is a no-op when dtype already matches, so it does not protect callers).
 - **Phase raised:** E5 (qualitative overlay rendering).
+
+---
+
+## F23 — Stage 6 release detection: 2D pose-only (no ball, no 3D); PRD method enum extended
+
+- **Status:** ACTIVE (2026-05-29). Documented deviation from PRD §7.6 / §9.6.
+- **Deviation:** the PRD's Stage 6 release rules (`forward_rule`, `backward_trace`, `fallback_apex`) are all **ball-based** and assume 3D triangulated pose (Stage 4). We have neither — ball detection was abandoned as infeasible (F19) and **the user has decided not to pursue a ball detector** for this project; Stage 4 (3D) is iPhone-gated. So Stage 6 is built as a **single-camera 2D pose-only** detector: `pose_apex` (PRIMARY — shooting-wrist peak-height/apex, the velocity zero-crossing) and `pose_forward` (SECONDARY — onset of overhead arm extension: wrist-above-shoulder + elbow≥160°). Jump shots only (layups deferred).
+- **Schema change:** `ReleaseFrame.method` Literal extended with `"pose_apex"` and `"pose_forward"` (kept the three ball-based values for the future 3D variant). `n_cameras_at_release == 1` marks the 2D single-camera methods. Chosen over reusing `fallback_apex` so provenance stays truthful (user picked "Option B").
+- **Migration:** when iPhone footage + Stage 4 exist, the SAME apex/forward logic runs on triangulated 3D pose (v2) — better vertical + multi-view occlusion robustness. No ball either way, so the ball-based PRD methods may never run; `pose_apex` is the de-facto primary, not a fallback.
+- **Validation:** qualitative video review — MultiSubjects close-up shot clips first (clear release), then TrackID3x3 detected shots (realistic). Δframes-vs-GT quantification deferred until the overlays look right.
+- **Phase raised:** post-sprint Stage 6 (built after Phase E).
+
+---
+
+## F24 — Stage 6 forward-confidence as a Stage 5 false-positive filter (cross-method verification)
+
+- **Status:** PROPOSED (2026-05-29). Small-sample evidence is promising (n=9 TrackID3x3 events); LOCK-IN pending validation on iPhone footage. **Logging now so the rationale can go into the final report if the pattern holds.**
+
+- **The core idea — same input, two methods, cross-check:**
+  - Stage 5 (action recognition) and Stage 6 (release detection) **both operate on the exact same per-player COCO-17 pose track** — there is no other input. They differ only in *method*: Stage 5 is a deep CNN (PoseConv3D / SlowOnly-R50) that learns implicit spatio-temporal pose patterns from heatmap volumes; Stage 6 encodes the *explicit physical geometry* of a jump-shot release (shooting wrist above the shoulder + elbow extended ≥160° for ≥2 frames).
+  - When the CNN fires "shot" but the geometric rule cannot find any sustained overhead arm extension in the search window, the two methods *disagree* on what the same pose sequence depicts. That disagreement is a principled FP signal — the pose probably *resembles* a shot to the CNN without actually containing the geometric signature of a release.
+
+- **The signal in code:** `Stage6 ReleaseFrame.confidence_flag == "high"` iff the forward rule found a sustained extension interval (a true overhead-extension). When no interval is found, Stage 6 falls back to the wrist-apex computation and tags `confidence_flag = "low"` (and forward_frame == apex_frame as the visible symptom).
+
+- **Small-sample evidence (TrackID3x3, 9 Stage-5-detected events at threshold ≥0.6 — user manually labelled real-vs-FP):**
+
+  | Stage 5 conf | clip / track / peak | Stage 6 forward_conf | user verdict |
+  |---|---|---|---|
+  | 0.94 | S4T4 t4 f200 | **high** (186 ≠ 213) | real ✓ |
+  | 0.92 | S5T7 t3 f112 | **high** (122 ≠ 126) | real ✓ |
+  | 0.90 | S5T5 t4 f112 | **high** (123 ≠ 127) | real ✓ |
+  | 0.82 | S6T4 t4 f88 | low (65 == 65) | FP |
+  | 0.73 | S6T4 t9 f237 | low (241 == 241) | FP |
+  | 0.67 | S6T1 t6 f96 | low (142 == 142) | FP |
+  | 0.66 | S4T6 t3 f192 | **high** (194 ≠ 198) | real ✓ |
+  | 0.65 | S4T6 t6 f176 | high (135 ≠ 214) | FP ✗ MISSED |
+  | 0.63 | S4T6 t8 f148 | low (104 == 104) | FP (bg player) |
+
+  Stage 5 alone @ 0.75 threshold: **3 TP / 1 FP / 1 FN (S4T6 0.66 missed)** → 75% precision, 75% recall.
+  Stage 5 @ 0.6 + Stage 6 `forward_conf=="high"` gate: **4 TP / 1 FP / 0 FN** → 80% precision, 100% recall.
+
+  Strictly dominates on this sample. The lowered Stage 5 threshold (0.6) recovers a real shot (S4T6 0.66) that 0.75 was dropping; Stage 6 absorbs the FPs that come along, except one (S4T6 t6) where the rule found extension at the wrong time — a separate failure mode the geometric filter cannot catch.
+
+- **What's implemented:**
+  - `score_threshold` in `run_shot_inference` lowered from **0.75 → 0.6** (raw shot-event firing).
+  - `is_verified_shot(release_frame)` helper added to `stage6_release` — returns `True` iff `release_frame.confidence_flag == "high"`. Pure cross-method gate; no new ML.
+  - Combined-pipeline eval entrypoint in `stage5_modal.py` (`eval_actions_combined`) that runs Stage 5 @ 0.6 + Stage 6 verification across a clip set and reports raw vs verified counts.
+
+- **Honest caveats (must repeat in the report):**
+  1. **n = 9 events on 13 short clips.** Too few for a reliable precision/recall claim. Re-validate on iPhone footage with hand-labelled shot ground truth.
+  2. **The filter cuts both ways with pose quality:** an occluded shooter with weak Stage 2 keypoints will trip a low-confidence Stage 6 → false rejection of a real shot. Net win on this sample, but TrackID3x3 has reasonable pose quality; iPhone may differ.
+  3. **It does not catch every FP type.** S4T6 t6 (a non-shooting motion that happened to satisfy the forward condition somewhere in the window) is missed by the rule alone — would need a tighter spatial/temporal gate (e.g. require the extension to be near the Stage 5 peak frame).
+  4. The mechanism depends on Stage 5 and Stage 6 being **same-input, different-method**. If/when a ball or 3D cue is added (changing the input set), this cross-method symmetry weakens and the filter needs re-evaluation.
+
+- **Validation plan (re-test on iPhone data):** rerun `eval_actions_combined` with hand-labelled GT shots → compute precision/recall pre- and post-Stage-6 gate → confirm: (a) recall is preserved, (b) precision improves materially, (c) the failure-mode distribution matches (most FPs caught by the fallback, a residual tail of "wrong-time extension" misses).
+
+- **Phase raised:** post-sprint Stage 5 + Stage 6 composition.
+
+---
+
+## F25 — Pose-only Stage 7 contest metric (PRD §9.7 / Decision 9 deviation following Phase D drop)
+
+- **Status:** RESOLVED (2026-06-02) — design + schema landed. Implementation runs in weeks 3-4 with Stage 4 triangulation + own iPhone footage.
+- **Phase raised:** post-Phase-C planning, after the user decided to drop Phase D entirely (ball detection — see `project_ball_detection_deferred` memory, `flags.md` F19).
+- **Description:** PRD §9.7 / `decisions.md` Decision 9 specced a 3D **defender-wrist-to-ball-trajectory** distance as the headline contest measurement. Without Phase D, no ball trajectory is available, so the metric is redesigned to be **pose-only** while preserving Decision 9's framework (5 measurements at release).
+- **Schema changes (`src/courtvision/schemas.py::ContestMeasurement`):**
+  - `wrist_to_trajectory_distance_m` → **`wrist_to_wrist_distance_m`** (closest defender's nearer wrist ↔ shooter's shooting wrist, 3D).
+  - `wrist_height_advantage_m` *semantics* changed (defender wrist z − shooter wrist z, was vs ball position); name unchanged.
+  - `shooter_velocity_{forward,lateral,vertical}_mps` (3 fields) → **`shooter_fade_mps`** (single scalar): `sqrt(max(0, −v_forward)² + v_lateral²)` in the court frame. Forward = toward rim → 0 fade. Vertical dropped (captured by wrist-height advantage).
+  - `floor_distance_m`, `composite_score`, `closest_defender_track_id`, `flags` unchanged.
+- **`tests/test_schemas.py::test_contest_measurement_sequence`** updated accordingly. **`docs/prd.md` §7.7 / §9.7 intentionally NOT edited** — the PRD remains the source of truth for the original spec; deviations live here + in `decisions.md` (Decision 9 sub-bullet "Phase D-drop pose-only redesign"), matching the Decision 2 / engine-swap precedent.
+- **Why it matters:** keeps the project's headline contest measurement on a runnable path without a ball detector. Phase 2 escalation = revisit the original 3D wrist-to-trajectory metric if/when iPhone footage enables a working ball detector.

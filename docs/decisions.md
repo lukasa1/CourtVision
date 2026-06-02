@@ -302,6 +302,16 @@ For every decision, capture: (a) the choice, (b) the intuition, (c) what we're c
      - Triangulation degraded (2-camera fallback): increases polyline noise; flag with Decision 4 marker, still usable
      - Ball trajectory exits frame quickly: use whatever points we have; contest volume is first few frames anyway
 
+   - **Phase D-drop pose-only redesign (2026-06-02): contest metric without ball.** Phase D (Stage 3 ball detection) was dropped entirely (see `project_ball_detection_deferred` memory + `flags.md` F19) — ball detection is deferred until iPhone footage. Phase 1 contest metric pivots to **pose-only proxies** while preserving Decision 9's framework (5 measurements at release). The original wrist-to-trajectory design above is the "Phase 2 + own-footage" path if/when a working ball detector exists.
+     - **Replaces (1) Wrist-to-trajectory → `wrist_to_wrist_distance_m`:** 3D distance from the closest defender's nearer wrist to the shooter's shooting wrist at release. Small distance = high contest. Schema field renamed; details in `flags.md` F25.
+     - **(2) Wrist-height advantage**, now relative to the shooter's shooting wrist (not the ball): `defender_wrist_z − shooter_wrist_z`. Positive = defender's hand at/above the launch point and best-positioned to alter the trajectory. Combined with (1), this is the pose-only proxy for "defender's hand near the (estimated) ball trajectory."
+     - **Replaces (3) 3-component shooter velocity → single `shooter_fade_mps`:** `sqrt(max(0, −v_forward)² + v_lateral²)` in the court frame, with `forward = unit vector shooter → rim`. Pure forward motion (drive at the rim) = 0; backward and sideways count as fade. **Vertical dropped** — captured by (2). User insight: only motion *away from the line to the basket* is contest-induced; forward toward the rim is natural.
+     - **(4) Floor distance** unchanged (pose-only, NBA-comparable; still the literature baseline).
+     - **(5) Composite** unchanged in structure; consumes the new (1)/(3). Thresholds and weights stay **TBD** until calibration on own footage. Flags include `uncontested`, `fadeaway`.
+     - **Selection-rule updates (no ball reference):** "closest defender" → by 3D Euclidean distance from defender pelvis to **shooter pelvis** at release (was: to ball position). "Shooting hand" → the higher wrist of the shooter at release (was: nearer to the ball).
+     - **Failure modes that drop out:** no more WASB-loses-ball / parametric-fit fallback / ball-exits-frame issues. Triangulation noise + ByteTrack ID swaps remain (flag as before).
+     - **Scope:** the metric is still inherently 3D — runs in weeks 3–4 once Stage 4 triangulation + own iPhone footage exist. Definition + schema land now (`schemas.py`, `tests/test_schemas.py`, F25).
+
 10. **Calibration logistics — chessboard intrinsics (one-time per phone), court-landmark extrinsics (per session), AE/AF lock, reprojection-error drift monitoring.**
 
     - **What this covers:** the mechanics of camera calibration that feed Pose2Sim's triangulation (Decision 4). Calibration error propagates directly into every 3D measurement; ~1° extrinsic rotation error → ~5cm position error at 3m distance, which matters for the contest metric (Decision 9).

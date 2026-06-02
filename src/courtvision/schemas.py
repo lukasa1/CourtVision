@@ -191,7 +191,11 @@ class ReleaseFrame(BaseModel):
 
     event_id: str
     release_frame_idx: int
-    method: Literal["forward_rule", "backward_trace", "fallback_apex"]
+    # pose_apex / pose_forward: single-camera 2D pose-only methods (no ball, no
+    # 3D) — the implemented release detectors. The ball-based forward_rule /
+    # backward_trace / fallback_apex remain for the eventual 3D+ball variant
+    # (n_cameras_at_release==1 marks the 2D single-camera methods). See flags F23.
+    method: Literal["forward_rule", "backward_trace", "fallback_apex", "pose_apex", "pose_forward"]
     confidence_flag: Literal["high", "low"]
     per_keypoint_confidence: dict[str, float]
     n_cameras_at_release: int
@@ -213,11 +217,16 @@ class ContestMeasurement(BaseModel):
     model_config = _StrictModel
 
     event_id: str
-    wrist_to_trajectory_distance_m: float | None  # headline novel metric
+    # Headline pose-only proxy (Phase D-drop redesign — decisions.md Decision 9,
+    # flags.md F25). 3D distance from closest defender's nearer wrist to the
+    # shooter's shooting wrist at release. Renamed from wrist_to_trajectory_distance_m.
+    wrist_to_wrist_distance_m: float | None
+    # defender wrist z minus shooter shooting-wrist z (was z vs ball position).
     wrist_height_advantage_m: float | None
-    shooter_velocity_forward_mps: float
-    shooter_velocity_lateral_mps: float
-    shooter_velocity_vertical_mps: float
+    # sqrt(max(0, -v_forward)^2 + v_lateral^2) in the court frame; forward = toward
+    # rim. 0 = no fade (pure forward / stationary). Replaces 3 shooter_velocity_*
+    # fields; vertical dropped (captured by wrist_height_advantage).
+    shooter_fade_mps: float
     floor_distance_m: float | None
     composite_score: float | None
     closest_defender_track_id: int | None

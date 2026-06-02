@@ -137,11 +137,9 @@ def test_contest_measurement_sequence(tmp_path: Path) -> None:
         measurements=[
             ContestMeasurement(
                 event_id="e1",
-                wrist_to_trajectory_distance_m=0.42,
+                wrist_to_wrist_distance_m=0.42,
                 wrist_height_advantage_m=-0.05,
-                shooter_velocity_forward_mps=0.3,
-                shooter_velocity_lateral_mps=0.1,
-                shooter_velocity_vertical_mps=2.4,
+                shooter_fade_mps=0.32,
                 floor_distance_m=1.1,
                 composite_score=0.78,
                 closest_defender_track_id=1,
