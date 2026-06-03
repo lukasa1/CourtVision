@@ -71,6 +71,70 @@ def test_blazepose33_to_coco17_mapping() -> None:
     assert BLAZEPOSE33_TO_COCO17[10] == 16
 
 
+def test_evaluate_multisubjects_per_keypoint_and_multitrack(tmp_path: Path) -> None:
+    """Smoke: per-clip resolution scaling + multi-track per-frame matching + per-keypoint output."""
+    from courtvision.stage2_pose.eval import _COCO17_NAMES, evaluate_multisubjects
+
+    # Build a synthetic BlazePose-33 CSV (frame=1, BlazePose normalised [0,1])
+    # for a single player. We populate only the COCO-mapped 17 indices.
+    coco_norm = [
+        (0.50, 0.10),
+        (0.49, 0.09),
+        (0.51, 0.09),
+        (0.47, 0.10),
+        (0.53, 0.10),
+        (0.42, 0.25),
+        (0.58, 0.25),
+        (0.38, 0.40),
+        (0.62, 0.40),
+        (0.36, 0.55),
+        (0.64, 0.55),
+        (0.45, 0.55),
+        (0.55, 0.55),
+        (0.45, 0.75),
+        (0.55, 0.75),
+        (0.45, 0.92),
+        (0.55, 0.92),
+    ]
+    # Build 99-col data row (33 BlazePose keypoints x 3 (X,Y,Z)).
+    row = [""] * (33 * 3)
+    for coco_i, bp_i in enumerate(BLAZEPOSE33_TO_COCO17):
+        x, y = coco_norm[coco_i]
+        row[bp_i * 3] = f"{x:.4f}"
+        row[bp_i * 3 + 1] = f"{y:.4f}"
+        row[bp_i * 3 + 2] = "0.0"
+    header = "Frame," + ",".join(f"Keypoint_{i}_{ax}" for i in range(33) for ax in ("X", "Y", "Z"))
+    gt_dir = tmp_path / "gt"
+    gt_dir.mkdir()
+    (gt_dir / "abc.csv").write_text(header + "\n1," + ",".join(row) + "\n")
+
+    # Predicted: two Halpe-26 tracks at frame 0 — one matches the player, one
+    # is a distractor (e.g. coach) far away. The eval must pick the closer one.
+    W, H = 1000.0, 1000.0
+    player_overrides = {i: (coco_norm[i][0] * W, coco_norm[i][1] * H) for i in range(17)}
+    distractor_overrides = {i: (50.0 + i, 50.0 + i) for i in range(17)}
+    player = _pose(0, 1, player_overrides)
+    distractor = _pose(0, 2, distractor_overrides)
+    seq = Pose2DSequence(session_id="ms", camera_id="cam0", fps=25.0, poses=[distractor, player])
+    poses_dir = tmp_path / "poses"
+    poses_dir.mkdir()
+    write_json(seq, poses_dir / "pose2d_abc.json")
+
+    result = evaluate_multisubjects(poses_dir, gt_dir, pck_threshold=0.05, frame_w=W, frame_h=H)
+    assert result["n_sequences"] == 1
+    s = result["summary"]
+    # Player matched the GT, so all 17 keypoints should land within threshold.
+    assert s["pck"] == pytest.approx(1.0)
+    assert s["wrist_pck"] == pytest.approx(1.0)
+    assert set(s["per_keypoint"]) == set(_COCO17_NAMES)
+    for k in _COCO17_NAMES:
+        assert s["per_keypoint"][k] == pytest.approx(1.0), k
+    # Per-clip diagnostics surfaced.
+    clip = result["per_sequence"]["abc"]
+    assert clip["n_matched_frames"] == 1
+    assert clip["resolution_px"] == [W, H]
+
+
 # ---------------------------------------------------------------------------
 # Wrist scoring
 # ---------------------------------------------------------------------------

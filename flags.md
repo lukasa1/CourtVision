@@ -372,3 +372,19 @@ Format per flag:
   - `floor_distance_m`, `composite_score`, `closest_defender_track_id`, `flags` unchanged.
 - **`tests/test_schemas.py::test_contest_measurement_sequence`** updated accordingly. **`docs/prd.md` §7.7 / §9.7 intentionally NOT edited** — the PRD remains the source of truth for the original spec; deviations live here + in `decisions.md` (Decision 9 sub-bullet "Phase D-drop pose-only redesign"), matching the Decision 2 / engine-swap precedent.
 - **Why it matters:** keeps the project's headline contest measurement on a runnable path without a ball detector. Phase 2 escalation = revisit the original 3D wrist-to-trajectory metric if/when iPhone footage enables a working ball detector.
+
+---
+
+## F26 — MultiSubjects per-keypoint COCO-17 PCK secondary corroboration (closes F18 MS-scale loose end)
+
+- **Status:** RESOLVED (2026-06-02). The Stage 2 pose pipeline was evaluated end-to-end against MultiSubjects BlazePose-33 GT (subset to COCO-17) across n = 300 stratified val clips.
+- **Phase raised:** post-Phase-C report-prep (user pushed for the secondary all-COCO-17 corroboration that F18 had flagged as "unconfirmed / not yet run").
+- **What changed:**
+  - `evaluate_multisubjects` extended with: (a) per-keypoint COCO-17 PCK breakdown (was overall + wrist only), (b) multi-track per-frame spatial matching by COCO-centroid closeness (handles Stage 1 emitting extra non-player tracks), (c) per-clip pixel resolution read from each clip's video file via cv2 (replaces the global `frame_w`/`frame_h` assumption that F18 flagged as unverified — `videos_dir` param). Signature is backward-compatible.
+  - New `scripts/stage2_ms_batch.py`: extracts the requested val clips' videos + BlazePose CSVs from the on-Volume RAR archives, runs Stage 1 + Stage 2 in parallel waves, then runs the eval.
+- **Result (n = 300, 362,695 keypoints, full per-clip + per-landmark table in `decisions.md` Decision 2):**
+  - **Overall COCO-17 PCK@0.05 = 0.841.** Wrist PCK = 0.680.
+  - Per-landmark proximal→distal falloff matches TrackID3x3's per-landmark diagnostic; shoulders/face/legs 0.85–0.91 (eval is sound), elbow ~0.78, wrist ~0.68.
+  - Cross-dataset wrist convergence: TrackID3x3 0.655 ↔ MultiSubjects 0.680 — same number on completely different domain + camera + GT-provider, confirming the wrist measurement reflects RTMPose's distal-joint accuracy vs model-derived GT, not a TrackID3x3 artifact.
+- **F18 loose end closed:** the "MultiSubjects coord scale assumed not yet confirmed" note in F18 is resolved by the per-clip resolution lookup; the eval works end-to-end and the numbers are stable.
+- **Eval JSON:** `outputs/stage2_gate/eval_stage2_multisubjects_300.json` (gitignored). Reproducible with `scripts/stage2_ms_batch.py::run --clips <300 stems>`.

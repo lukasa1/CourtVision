@@ -52,6 +52,18 @@ For every decision, capture: (a) the choice, (b) the intuition, (c) what we're c
      - **`head=0.675` caveat:** likely a mapping offset — GT keypoint 0 ("head") was compared against Halpe **nose**; if their label is top-of-head, that's a systematic shift, not a localization miss. Doesn't affect the wrist gate.
      - **Qualitative (the decisive check, PRD §9.2):** user reviewed 13 wrist-overlay videos (`outputs/stage2_gate/`); **wrist location looks accurate, especially on shot-release frames — the frames the Stage 7 contest metric depends on.** This is the acceptance signal the PRD allows in lieu of the quantitative bar.
      - **Disposition:** Phase C **accepted off-the-shelf** (no ★ fine-tune this sprint). The Phase 2 ★ RTMPose fine-tune remains the documented escalation if wrist accuracy proves insufficient downstream on own footage (Stage 7 contest metric).
+   - **MultiSubjects secondary corroboration (2026-06-02): cross-dataset PCK on cleaner conditions.** Ran the Stage 1 + Stage 2 pipeline end-to-end on **n = 300** stratified-random MultiSubjects val clips (100 dribble + 100 lay-up + 100 shoot), scoring all 17 COCO keypoints against the BlazePose-33 GT (subset to COCO-17) using `evaluate_multisubjects` extended with per-clip resolution + multi-track per-frame matching (F26). **n = 362,695 keypoints scored.**
+
+     | | PCK@0.05 |
+     |---|---:|
+     | Overall (all 17 COCO) | **0.841** |
+     | Wrist (mean L + R) | **0.680** |
+
+     **Per-landmark (selected):** nose 0.91, shoulder 0.89 / 0.89, elbow 0.79 / 0.77, wrist 0.69 / 0.67, hip 0.86 / 0.86, knee 0.88 / 0.87, ankle 0.87 / 0.86. **Per-action overall PCK** (per-clip mean): dribble 0.844 ± 0.157, lay-up 0.799 ± 0.116, shoot 0.798 ± 0.187 (3 of 300 clips scored 0 — Stage 1 missed the player; negligible on aggregate).
+
+     - **Why this matters for the report:** the **proximal→distal falloff is reproduced cleanly on a completely different dataset / camera setup** (single-player gym vs half-court fixed cam; BlazePose vs TrackID3x3-baseline GT; ~25 fps gym capture vs 19.98 fps 3v3 footage). Shoulders/face/legs in the 0.85–0.91 band confirms the eval pipeline is sound; elbows ~0.78 and wrists ~0.68 confirm RTMPose's intrinsic distal-joint difficulty against model-derived GT at the strict ~12 px tolerance.
+     - **Wrist accuracy is essentially identical across both datasets:** TrackID3x3 wrist PCK = 0.655 ± 0.043 (13 clips, multi-player half-court); MultiSubjects wrist = **0.680** (300 clips, single-player gym). Two completely different domains, two different model-derived GTs, converging on ~0.67. This is strong evidence the wrist number is a real measurement of model-vs-model agreement at this threshold — **not** a TrackID3x3-specific artifact, and the 0.85 bar is genuinely too strict for distal joints against model-derived GT.
+     - **Eval JSON:** `outputs/stage2_gate/eval_stage2_multisubjects_300.json` (gitignored; reproducible via `uv run modal run scripts/stage2_ms_batch.py::run --clips ...`).
 
 3. **Ball detector — WASB (BMVC 2023, `nttcom/WASB-SBDT`), off-the-shelf, no additional tracking wrapper.**
    - Rationale: WASB is purpose-built for sports ball detection across multiple sports including basketball. Heatmap-based (HRNet backbone) handles motion blur natively; this is what TrackNet/WASB exist for. Built-in temporal consistency in inference replaces any need for ByteTrack+Kalman wrapper. Code, pretrained weights, and basketball dataset all public. Peer-reviewed.

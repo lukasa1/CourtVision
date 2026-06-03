@@ -305,6 +305,40 @@ def evaluate_trackid3x3(
 # BlazePose-33 index for each COCO-17 keypoint (in COCO order).
 BLAZEPOSE33_TO_COCO17 = [0, 2, 5, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
 _COCO_WRIST = (9, 10)  # left, right (COCO order)
+_COCO17_NAMES = (
+    "nose",
+    "l_eye",
+    "r_eye",
+    "l_ear",
+    "r_ear",
+    "l_shoulder",
+    "r_shoulder",
+    "l_elbow",
+    "r_elbow",
+    "l_wrist",
+    "r_wrist",
+    "l_hip",
+    "r_hip",
+    "l_knee",
+    "r_knee",
+    "l_ankle",
+    "r_ankle",
+)
+
+
+def _video_resolution(path: Path) -> tuple[float, float] | None:
+    """Return (W, H) in pixels from a video file via cv2; None if unreadable."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return None
+    try:
+        w = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = float(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    finally:
+        cap.release()
+    return (w, h) if w > 0 and h > 0 else None
 
 
 def _load_blazepose_csv(path: Path) -> dict[int, list[Point | None]]:
@@ -343,73 +377,126 @@ def evaluate_multisubjects(
     pck_threshold: float = 0.05,
     frame_w: float = 1.0,
     frame_h: float = 1.0,
+    videos_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """COCO-17 PCK@``pck_threshold`` vs MultiSubjects BlazePose-33 GT.
+    """Per-keypoint COCO-17 PCK@``pck_threshold`` vs MultiSubjects BlazePose-33 GT.
 
-    Single-player clips, so no cross-player matching. Predicted Halpe-26
-    poses are subset to COCO-17; GT BlazePose is subset+normalised to COCO-17.
-    GT coords are normalised [0, 1]; pass the clip ``frame_w``/``frame_h`` to
-    bring GT into the prediction's pixel space (default 1.0 keeps GT
-    normalised — only valid if predictions are also normalised). PCK is
-    normalised by the GT COCO-17 bbox diagonal. **Coordinate scale is assumed,
-    not yet confirmed against populated CSVs — see F18.**
+    Predicted Halpe-26 poses are subset to COCO-17; GT BlazePose-33 is subset to
+    COCO-17 (`BLAZEPOSE33_TO_COCO17`). PCK is normalised by the GT COCO-17 bbox
+    diagonal in pixel space.
+
+    **Coordinate handling:** GT coords are MediaPipe-normalised [0, 1]; predicted
+    coords are in pixel space. If ``videos_dir`` is provided, per-clip pixel
+    resolution is read from each clip's ``<key>.mp4`` (via cv2); otherwise the
+    global ``frame_w``/``frame_h`` are applied to every clip.
+
+    **Multi-track matching:** Stage 1 may emit more than one predicted track per
+    frame (e.g. a coach in the background); for each annotated frame we pick the
+    predicted pose whose COCO-17 centroid is closest to the GT keypoint centroid,
+    so a stray non-player track doesn't corrupt the per-keypoint comparison.
+
+    Returns ``{"summary": {...}, "per_sequence": {...}, "n_sequences": int}``.
+    ``summary`` micro-averages over all matched keypoints across clips; both
+    summary and per_sequence include a ``per_keypoint`` breakdown keyed by COCO
+    keypoint name.
     """
     from courtvision.stage2_pose.halpe_to_coco17 import halpe26_to_coco17
 
     poses_dir = Path(poses_dir)
     gt_dir = Path(gt_dir)
+    videos_dir = Path(videos_dir) if videos_dir is not None else None
     pairs = _pair_files(poses_dir, gt_dir, pred_prefix="pose2d_", gt_ext=".csv")
     if not pairs:
         raise FileNotFoundError(f"no matchable (pred, gt) pairs under {poses_dir} vs {gt_dir}")
 
-    per_sequence: dict[str, dict[str, float]] = {}
-    tot_correct = tot = tot_w_correct = tot_w = 0.0
+    per_sequence: dict[str, dict[str, Any]] = {}
+    g_correct = [0] * 17
+    g_total = [0] * 17
+
     for pred_path, gt_path, key in pairs:
         seq = read_json_as(Pose2DSequence, pred_path)
         gt = _load_blazepose_csv(gt_path)
-        pred_by_frame = {p.frame_idx: p for p in seq.poses}
+        pred_by_frame: dict[int, list[Pose2D]] = defaultdict(list)
+        for p in seq.poses:
+            pred_by_frame[p.frame_idx].append(p)
 
-        c_all = n_all = c_w = n_w = 0
+        # Per-clip resolution.
+        w, h = frame_w, frame_h
+        if videos_dir is not None:
+            vp = videos_dir / f"{key}.mp4"
+            res = _video_resolution(vp) if vp.exists() else None
+            if res is not None:
+                w, h = res
+
+        clip_correct = [0] * 17
+        clip_total = [0] * 17
+        n_matched_frames = 0
         for frame_idx, gt_coco in gt.items():
-            pred = pred_by_frame.get(frame_idx)
-            if pred is None:
+            preds = pred_by_frame.get(frame_idx)
+            if not preds:
                 continue
-            pred_coco = halpe26_to_coco17(pred)
             gt_px: list[Point | None] = [
-                (g[0] * frame_w, g[1] * frame_h) if g is not None else None for g in gt_coco
+                (g[0] * w, g[1] * h) if g is not None else None for g in gt_coco
             ]
             valid = [(i, g) for i, g in enumerate(gt_px) if g is not None]
             if not valid:
                 continue
+            gt_centroid = _centroid([g for _, g in valid])
+
+            pred_cocos = [halpe26_to_coco17(p) for p in preds]
+            best = min(
+                range(len(preds)),
+                key=lambda i: _euclid(
+                    _centroid([(k.x, k.y) for k in pred_cocos[i].keypoints]),
+                    gt_centroid,
+                ),
+            )
+            pred_coco = pred_cocos[best]
+            n_matched_frames += 1
+
             diag = _bbox_diag([g for _, g in valid])
             if diag <= 0:
                 continue
             thr = pck_threshold * diag
             for i, g in valid:
                 d = _euclid(g, (pred_coco.keypoints[i].x, pred_coco.keypoints[i].y))
-                ok = d <= thr
-                c_all += ok
-                n_all += 1
-                if i in _COCO_WRIST:
-                    c_w += ok
-                    n_w += 1
+                ok = int(d <= thr)
+                clip_correct[i] += ok
+                clip_total[i] += 1
+                g_correct[i] += ok
+                g_total[i] += 1
 
-        per_sequence[key] = {
-            "pck": (c_all / n_all) if n_all else 0.0,
-            "wrist_pck": (c_w / n_w) if n_w else 0.0,
-            "n_keypoints": float(n_all),
-            "n_wrist_keypoints": float(n_w),
+        per_keypoint_clip = {
+            _COCO17_NAMES[i]: (clip_correct[i] / clip_total[i] if clip_total[i] else 0.0)
+            for i in range(17)
         }
-        tot_correct += c_all
-        tot += n_all
-        tot_w_correct += c_w
-        tot_w += n_w
+        clip_n = sum(clip_total)
+        clip_c = sum(clip_correct)
+        w_c = clip_correct[_COCO_WRIST[0]] + clip_correct[_COCO_WRIST[1]]
+        w_n = clip_total[_COCO_WRIST[0]] + clip_total[_COCO_WRIST[1]]
+        per_sequence[key] = {
+            "pck": (clip_c / clip_n) if clip_n else 0.0,
+            "wrist_pck": (w_c / w_n) if w_n else 0.0,
+            "per_keypoint": per_keypoint_clip,
+            "n_keypoints": float(clip_n),
+            "n_wrist_keypoints": float(w_n),
+            "n_matched_frames": n_matched_frames,
+            "resolution_px": [w, h],
+        }
 
+    summary_per_kp = {
+        _COCO17_NAMES[i]: (g_correct[i] / g_total[i] if g_total[i] else 0.0) for i in range(17)
+    }
+    all_c = sum(g_correct)
+    all_n = sum(g_total)
+    w_c = g_correct[_COCO_WRIST[0]] + g_correct[_COCO_WRIST[1]]
+    w_n = g_total[_COCO_WRIST[0]] + g_total[_COCO_WRIST[1]]
     summary = {
-        "pck": (tot_correct / tot) if tot else 0.0,
-        "wrist_pck": (tot_w_correct / tot_w) if tot_w else 0.0,
-        "n_keypoints": tot,
-        "n_wrist_keypoints": tot_w,
+        "pck": (all_c / all_n) if all_n else 0.0,
+        "wrist_pck": (w_c / w_n) if w_n else 0.0,
+        "per_keypoint": summary_per_kp,
+        "n_keypoints": all_n,
+        "n_wrist_keypoints": w_n,
         "pck_threshold": pck_threshold,
     }
     return {"summary": summary, "per_sequence": per_sequence, "n_sequences": len(pairs)}
