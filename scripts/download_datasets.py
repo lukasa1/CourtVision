@@ -303,6 +303,86 @@ def list_dir(relpath: str = "") -> None:
             print(f"  file  {child.stat().st_size:>14,}  {child.name}")
 
 
+@app.function(image=image, volumes={"/data": data_volume}, timeout=900, cpu=2)
+def audit_finesports() -> None:
+    """Thorough audit of the FineSports zip(s) on the Volume.
+
+    Reports: every entry in the outer zip, then for the inner zip — total
+    entry count, extension distribution, every non-jpg entry (these are
+    the candidates for metadata/README/splits/labels that we might be
+    overlooking), top-level subdir distribution, and a few sample paths
+    from each top-level. Confirms nothing useful is hiding in plain sight.
+    """
+    import zipfile
+    from collections import Counter
+    from pathlib import Path
+
+    data_volume.reload()
+    outer = Path("/data/finesports/FineSports_CVPR2024.zip")
+    if not outer.exists():
+        print(f"NOT FOUND: {outer}")
+        return
+
+    print(f"=== OUTER ZIP: {outer} ({outer.stat().st_size / 1e9:.2f} GB) ===")
+    with zipfile.ZipFile(outer) as ozf:
+        outer_names = ozf.namelist()
+        print(f"  {len(outer_names)} entries:")
+        for n in outer_names:
+            info = ozf.getinfo(n)
+            print(f"    {info.file_size:>15,}  {n}")
+
+        inner_name = "FineSports_CVPR2024/FineSports_trimmed_video_frames.zip"
+        if inner_name not in outer_names:
+            print(f"  inner zip not found at {inner_name}")
+            return
+
+        print(f"\n=== INNER ZIP: {inner_name} ===")
+        with ozf.open(inner_name) as inner_f, zipfile.ZipFile(inner_f) as izf:
+            inames = izf.namelist()
+            print(f"  total entries: {len(inames):,}")
+
+            # Distribution by extension (using full lowercased suffix).
+            exts = Counter()
+            for n in inames:
+                if n.endswith("/"):
+                    exts["[dir]"] += 1
+                else:
+                    p = Path(n)
+                    exts[p.suffix.lower() or "[no-ext]"] += 1
+            print("  extension distribution:")
+            for ext, cnt in exts.most_common():
+                print(f"    {ext:>15}  {cnt:>8,}")
+
+            # Top-level subdir distribution.
+            top_dirs = Counter(n.split("/", 1)[0] for n in inames if n)
+            print(f"  top-level prefixes ({len(top_dirs)}):")
+            for d, cnt in top_dirs.most_common():
+                print(f"    {d:<30}  {cnt:>8,}")
+
+            # The key question: are there any non-jpg, non-dir entries?
+            # (Those would be the metadata/README/split files we might miss.)
+            non_jpg = [
+                n
+                for n in inames
+                if not n.endswith("/") and Path(n).suffix.lower() != ".jpg"
+            ]
+            print(f"\n  non-jpg, non-dir entries ({len(non_jpg)}):")
+            for n in non_jpg[:50]:
+                print(f"    {izf.getinfo(n).file_size:>10,}  {n}")
+            if len(non_jpg) > 50:
+                print(f"    ... and {len(non_jpg) - 50} more")
+
+            # Sanity: every coarse-class subdir under NewFrames/.
+            classes = Counter()
+            for n in inames:
+                parts = n.split("/")
+                if len(parts) >= 2 and parts[0] == "NewFrames" and parts[1]:
+                    classes[parts[1]] += 1
+            print(f"\n  classes under NewFrames/ ({len(classes)}):")
+            for c, cnt in classes.most_common():
+                print(f"    {c:<30}  {cnt:>8,}")
+
+
 @app.function(image=image, volumes={"/data": data_volume}, timeout=600, cpu=2)
 def count_finesports_classes(top_n: int = 80) -> None:
     """Tabulate clips and frames per action class in the FineSports nested zip."""

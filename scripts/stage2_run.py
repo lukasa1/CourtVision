@@ -36,11 +36,15 @@ _log = get_logger(__name__)
 # can build a config without Hydra inside the container.
 _DEFAULT_MODEL = {
     "name": "rtmpose-l",
-    "cfg_path": None,
-    "weights": "/artifacts/checkpoints/rtmpose_l_halpe26.pth",
+    "onnx_model": (
+        "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/"
+        "rtmpose-l_simcc-body7_pt-body7-halpe26_700e-256x192-2abb7558_20230605.zip"
+    ),
     "keypoint_format": "halpe26",
     "num_keypoints": 26,
-    "device": "cuda:0",
+    "input_size": [192, 256],
+    "backend": "onnxruntime",
+    "device": "cpu",
 }
 
 
@@ -65,16 +69,15 @@ def main(cfg: DictConfig) -> None:
 def run(
     video_relpath: str,
     tracks_relpath: str,
-    weights_path: str = _DEFAULT_MODEL["weights"],  # type: ignore[assignment]
     device: str = _DEFAULT_MODEL["device"],  # type: ignore[assignment]
 ) -> None:
-    """Modal entrypoint: kick off Stage 2 inference on the GPU.
+    """Modal entrypoint: kick off Stage 2 inference (rtmlib/ONNX, CPU).
 
     ``video_relpath`` is relative to ``/data``; ``tracks_relpath`` to
     ``/artifacts`` (the TrackSequence written by Stage 1). The Modal function
     writes its Pose2DSequence JSON to the artifacts Volume and prints the relpath.
     """
-    config = {"model": {**_DEFAULT_MODEL, "weights": weights_path, "device": device}}
+    config = {"model": {**_DEFAULT_MODEL, "device": device}}
     out_relpath = run_rtmpose.remote(video_relpath, tracks_relpath, config)
     print(json.dumps({"artifacts_relpath": out_relpath}))
 

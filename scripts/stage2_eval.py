@@ -37,16 +37,22 @@ def _evaluate(poses_dir: Path, gt_dir: Path, subset: str, **kw: float) -> dict:
 
 
 def _summarise(result: dict, target_wrist_pck: float) -> dict:
-    wrist_pck = result["summary"].get("wrist_pck")
+    summary = result["summary"]
+    wrist_pck = summary.get("wrist_pck")
     gate = "PASS" if wrist_pck is not None and wrist_pck >= target_wrist_pck else "FAIL"
     _log.info(
         "stage2 eval: n_sequences=%d wrist_pck=%.4f (sided=%.4f, target>=%.2f) %s",
         result["n_sequences"],
         wrist_pck or float("nan"),
-        result["summary"].get("wrist_pck_sided", float("nan")),
+        summary.get("wrist_pck_sided", float("nan")),
         target_wrist_pck,
         gate,
     )
+    if "all_keypoint_pck" in summary:
+        _log.info("  all-keypoint PCK=%.4f", summary["all_keypoint_pck"])
+    if "per_landmark" in summary:
+        breakdown = "  ".join(f"{g}={v:.3f}" for g, v in summary["per_landmark"].items())
+        _log.info("  per-landmark PCK: %s", breakdown)
     return {"wrist_pck": wrist_pck, "gate": gate}
 
 
